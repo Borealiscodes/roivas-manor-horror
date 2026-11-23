@@ -16,7 +16,8 @@
     button, select { background: #140b1c; color: #eee2ff; border: 1px solid #4e2a63; padding: 6px 8px; font-family: monospace; font-size: 0.75rem; cursor: pointer; }
     button:active { background: #36184a; }
     button.spell-btn { border-color: #9d4edd; color: #e0aaff; }
-    #hud { width: 100%; max-width: 720px; background: #09060e; border: 1px solid #261636; padding: 7px 10px; font-size: 0.75rem; line-height: 1.45; white-space: pre-line; }
+    #hud, details.journal-box { width: 100%; max-width: 720px; background: #09060e; border: 1px solid #261636; padding: 7px 10px; font-size: 0.75rem; line-height: 1.45; white-space: pre-line; }
+    details.journal-box summary { cursor: pointer; color: #e0aaff; font-weight: bold; }
   </style>
 </head>
 <body>
@@ -34,7 +35,7 @@
     <button id="commit-btn" class="spell-btn">✦ Lock Stroke</button>
     <button id="cast-btn" class="spell-btn">🔥 Cast</button>
     <button id="clear-btn">↺ Clear</button>
-    <button id="audio-btn">🎻 Cello OST</button>
+    <button id="audio-btn">🎻 Cello + Marimba</button>
   </div>
   <div class="sigil-bar">
     <select id="quick-rune">
@@ -54,6 +55,10 @@
     <button id="add-sigil-btn" class="spell-btn">➕ Add Tome Rune</button>
   </div>
   <div id="hud">Initializing...</div>
+  <details class="journal-box" open>
+    <summary>📓 EVELYN ROIVAS CASE JOURNAL (STORY LOG)</summary>
+    <div id="journal-list" style="margin-top:6px;white-space:normal;"></div>
+  </details>
   <script type="module">
     import { Q16_ONE, q16Clamp } from './src/core/q16.js';
     import { DollarPQ16Recognizer } from './src/physics/dollar_p_q16.js';
@@ -68,6 +73,7 @@
     const narrBar = document.getElementById('narration-bar');
     const sanityBanner = document.getElementById('sanity-banner');
     const hud = document.getElementById('hud');
+    const journalList = document.getElementById('journal-list');
 
     const world = new ManorWorld();
     const recognizer = new DollarPQ16Recognizer();
@@ -81,7 +87,7 @@
 
     function unlockAudio() {
       audio.start();
-      document.getElementById('audio-btn').textContent = '🎻 Cello Active';
+      document.getElementById('audio-btn').textContent = '🎻 OST Active';
     }
     document.getElementById('audio-btn').addEventListener('click', unlockAudio);
 
@@ -200,11 +206,10 @@
       hud.textContent =
         'Room: ' + room.name + stealth + ' | Sanity: ' + ((state.sanityQ16 * 100) >> 16) + '%\n' +
         'Circuit: [' + (qAlign || 'Align?') + ' + ' + (qVerb || 'Verb?') + ' + ' + (qNoun || 'Noun?') + (qPargons ? ' + ' + qPargons + 'x PARGON' : '') + '] | Relics: ' + inv;
-      document.getElementById("journal-list").innerHTML = world.journal.map(e => "<p style=\"margin-bottom:4px;\">• " + e + "</p>").join("");
+      journalList.innerHTML = world.journal.map((e) => '<p style="margin-bottom:4px;">• ' + e + '</p>').join('');
       requestAnimationFrame(frame);
     }
-    document.getElementById("journal-list").innerHTML = world.journal.map(e => "<p style=\"margin-bottom:4px;\">• " + e + "</p>").join("");
-      requestAnimationFrame(frame);
+    requestAnimationFrame(frame);
   </script>
 </body>
 </html>
