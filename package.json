@@ -1,0 +1,9 @@
+{
+  "name": "roivas-manor-horror",
+  "version": "1.0.0-alpha",
+  "type": "module",
+  "description": "Psychological horror point-and-click & multi-stroke runic spellcasting engine in Q16.16",
+  "scripts": {
+    "test": "node tests/horror_suite_test.js"
+  }
+}

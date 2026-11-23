@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ROIVAS MANOR — Survival Horror (Q16.16)</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: #030205; color: #d8cce8; font-family: monospace; display: flex; flex-direction: column; align-items: center; padding: 8px; gap: 6px; }
+    h1 { font-size: 0.95rem; letter-spacing: 0.1em; color: #ff4d6d; text-align: center; }
+    #narration-bar { width: 100%; max-width: 720px; background: #0c0712; border: 1px solid #3c1e4a; padding: 7px 10px; font-size: 0.77rem; color: #f0d9ff; min-height: 38px; }
+    #viewport-wrap { position: relative; width: 100%; max-width: 720px; aspect-ratio: 480 / 272; border: 2px solid #3c1e4a; box-shadow: 0 0 30px rgba(200, 20, 60, 0.25); overflow: hidden; }
+    canvas { width: 100%; height: 100%; image-rendering: pixelated; display: block; touch-action: none; cursor: crosshair; }
+    #sanity-banner { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); background: rgba(160, 0, 20, 0.92); color: #fff; padding: 4px 10px; font-size: 0.75rem; display: none; pointer-events: none; }
+    .controls { display: flex; flex-wrap: wrap; gap: 5px; justify-content: center; max-width: 720px; }
+    button { background: #140b1c; color: #eee2ff; border: 1px solid #4e2a63; padding: 6px 9px; font-family: monospace; font-size: 0.76rem; cursor: pointer; }
+    button:active { background: #36184a; }
+    button.spell-btn { border-color: #ff4d6d; color: #ffb3c1; }
+    #hud { width: 100%; max-width: 720px; background: #09060e; border: 1px solid #261636; padding: 7px 10px; font-size: 0.75rem; line-height: 1.45; }
+  </style>
+</head>
+<body>
+  <h1>👁️ ROIVAS MANOR: DARKNESS IN Q16.16</h1>
+  <div id="narration-bar">Rain lashes the Foyer windows. Walk to objects/doors to inspect, or draw multi-stroke runes on screen.</div>
+  <div id="viewport-wrap">
+    <canvas id="screen" width="480" height="272"></canvas>
+    <div id="sanity-banner"></div>
+  </div>
+  <div class="controls">
+    <button id="left-btn">◀ Walk Left</button>
+    <button id="act-btn">🖐️ Inspect / Door</button>
+    <button id="right-btn">Walk Right ▶</button>
+    <button id="commit-btn" class="spell-btn">✦ Lock Rune Stroke</button>
+    <button id="cast-btn" class="spell-btn">🔥 Cast Spell</button>
+    <button id="clear-btn">↺ Clear</button>
+    <button id="audio-btn">🔊 Audio</button>
+  </div>
+  <div id="hud">Booting Manor...</div>
+  <div id="hud-guide" style="width:100%;max-width:720px;font-size:0.72rem;color:#9d8bb5;padding:0 4px;">
+    <strong>Multi-Stroke Runes (Lift finger freely, then tap ✦ Lock Rune Stroke):</strong><br/>
+    Alignments: <code>∨</code> Chattur'gha (Red) | <code>◇</code> Ulyaoth (Blue) | <code>||</code> Xel'lotath (Green) | <code>✕</code> Mantorok (Purple)<br/>
+    Actions: <code>↑</code> Antorbok (Attack) | <code>⛨</code> Bankorok (Ward/Unseal) | <code>○</code> Pargon (Power Boost)
+  </div>
+  <script type="module">
+    import { Q16_ONE, q16Clamp } from './src/core/q16.js';
+    import { DollarPQ16Recognizer } from './src/physics/dollar_p_q16.js';
+    import { ManorWorld } from './src/world/manor_sheaf_world.js';
+    import { HorrorFramebuffer, FB_WIDTH, FB_HEIGHT } from './src/render/horror_renderer.js';
+    import { HorrorAudioEngine } from './src/audio/horror_synth.js';
+
+    const canvas = document.getElementById('screen');
+    const ctx = canvas.getContext('2d');
+    const imgData = ctx.createImageData(FB_WIDTH, FB_HEIGHT);
+    const imgU32 = new Uint32Array(imgData.data.buffer);
+    const narrBar = document.getElementById('narration-bar');
+    const sanityBanner = document.getElementById('sanity-banner');
+    const hud = document.getElementById('hud');
+
+    const world = new ManorWorld();
+    const recognizer = new DollarPQ16Recognizer();
+    const fb = new HorrorFramebuffer();
+    const audio = new HorrorAudioEngine(22050);
+
+    let queuedAlign = null;
+    let queuedAction = null;
+    let queuedPargons = 0;
+    let moveDir = 0;
+    let tick = 0;
+
+    let audioCtx = null;
+    function unlockAudio() {
+      if (audioCtx) { if (audioCtx.state === 'suspended') audioCtx.resume(); return; }
+      const Ctor = window.AudioContext || window.webkitAudioContext;
+      audioCtx = new Ctor({ sampleRate: 22050 });
+      const node = audioCtx.createScriptProcessor(1024, 0, 1);
+      node.onaudioprocess = (e) => {
+        const out = e.outputBuffer.getChannelData(0);
+        const room = world.rooms[world.currentRoom];
+        const near = Boolean(room.horror && room.horror.alive && Math.abs(room.horror.x - world.playerX) < 130);
+        const pcm = audio.renderBlock(out.length, world.sanityQ16, near);
+        for (let i = 0; i < out.length; i++) out[i] = pcm[i] / 32768;
+      };
+      node.connect(audioCtx.destination);
+      document.getElementById('audio-btn').textContent = '🔊 Active';
+    }
+    document.getElementById('audio-btn').addEventListener('click', unlockAudio);
+
+    function speakText(txt, spooky = false) {
+      if (!('speechSynthesis' in window)) return;
+      window.speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(txt);
+      u.lang = 'en-GB';
+      u.pitch = spooky ? 0.35 : 0.85;
+      u.rate = spooky ? 0.75 : 0.96;
+      window.speechSynthesis.speak(u);
+    }
+
+    // Walk buttons (hold or tap) + keyboard arrows
+    const leftBtn = document.getElementById('left-btn');
+    const rightBtn = document.getElementById('right-btn');
+    leftBtn.addEventListener('pointerdown', () => { moveDir = -3; unlockAudio(); });
+    rightBtn.addEventListener('pointerdown', () => { moveDir = 3; unlockAudio(); });
+    window.addEventListener('pointerup', () => { moveDir = 0; recognizer.endStroke(); });
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowLeft' || e.key === 'a') world.movePlayer(-14);
+      if (e.key === 'ArrowRight' || e.key === 'd') world.movePlayer(14);
+      if (e.key === 'e' || e.key === 'Enter') doInteract();
+    });
+
+    function doInteract() {
+      unlockAudio();
+      const res = world.interact();
+      narrBar.textContent = world.statusLog;
+      if (res.event === 'BLOCKED') audio.triggerSting(110);
+      if (res.event === 'UNLOCK' || res.event === 'INSPECT') audio.triggerSting(260);
+      speakText(world.statusLog, false);
+    }
+    document.getElementById('act-btn').addEventListener('click', doInteract);
+
+    // Multi-stroke $P drawing on canvas
+    let drawing = false;
+    function getCanvasPt(e) {
+      const rect = canvas.getBoundingClientRect();
+      return {
+        x: q16Clamp((((e.clientX - rect.left) / rect.width) * FB_WIDTH) | 0, 0, FB_WIDTH - 1),
+        y: q16Clamp((((e.clientY - rect.top) / rect.height) * FB_HEIGHT) | 0, 0, FB_HEIGHT - 1)
+      };
+    }
+    canvas.addEventListener('pointerdown', (e) => {
+      unlockAudio();
+      drawing = true;
+      const p = getCanvasPt(e);
+      recognizer.beginStroke(p.x, p.y);
+    });
+    canvas.addEventListener('pointermove', (e) => {
+      if (!drawing) return;
+      const p = getCanvasPt(e);
+      recognizer.addPoint(p.x, p.y);
+    });
+    window.addEventListener('pointerup', () => { drawing = false; });
+
+    document.getElementById('commit-btn').addEventListener('click', () => {
+      const match = recognizer.commitGlyph();
+      if (!match || !match.runeId) return;
+      const r = match.runeId;
+      if (r === 'CHATTURGHA' || r === 'ULYAOTH' || r === 'XELLOTATH' || r === 'MANTOROK') queuedAlign = r;
+      else if (r === 'ANTORBOK' || r === 'BANKOROK') queuedAction = r;
+      else if (r === 'PARGON') queuedPargons++;
+      audio.triggerSting(210);
+      narrBar.textContent = 'Inscribed rune: ' + r + ' (' + (((match.accuracyQ16 * 100) >> 16)) + '% precision)';
+      speakText(r, true);
+    });
+
+    document.getElementById('cast-btn').addEventListener('click', () => {
+      unlockAudio();
+      if (!queuedAlign || !queuedAction) {
+        narrBar.textContent = 'Need at least 1 Alignment rune + 1 Action rune (Antorbok or Bankorok) before casting!';
+        return;
+      }
+      const res = world.castSpell(queuedAlign, queuedAction, queuedPargons);
+      narrBar.textContent = world.statusLog;
+      audio.triggerSting(res.outcome === 'BACKFIRE' ? 95 : 310);
+      speakText(world.statusLog, res.outcome === 'BACKFIRE');
+      queuedAlign = null;
+      queuedAction = null;
+      queuedPargons = 0;
+    });
+
+    document.getElementById('clear-btn').addEventListener('click', () => {
+      recognizer.clear();
+      queuedAlign = null;
+      queuedAction = null;
+      queuedPargons = 0;
+      narrBar.textContent = 'Cleared active rune circle.';
+    });
+
+    function frame() {
+      tick++;
+      if (moveDir !== 0) world.movePlayer(moveDir);
+      const state = world.step(tick);
+      fb.renderScene(world, recognizer.strokes, recognizer.current, tick);
+
+      if (state.sanityQ16 < 26000 && ((tick >> 5) & 1) === 0) {
+        sanityBanner.style.display = 'block';
+        sanityBanner.textContent = state.sanityQ16 === 0 ? 'YOUR MIND HAS SHATTERED — REFRESH TO RESTART' : 'SANITY FAILING — THE SHADOWS ARE CLOSING IN';
+        canvas.style.transform = 'rotate(' + (((tick >> 3) % 5) - 2) + 'deg)';
+      } else {
+        sanityBanner.style.display = 'none';
+        canvas.style.transform = 'none';
+      }
+
+      imgU32.set(fb.resolveRGBA32());
+      ctx.putImageData(imgData, 0, 0);
+
+      const room = world.rooms[world.currentRoom];
+      const invList = Array.from(world.inventory).join(', ') || 'Empty';
+      hud.textContent =
+        'Room: ' + room.name + ' | Sanity: ' + ((state.sanityQ16 * 100) >> 16) + '% | Tension: ' + state.dirichletTensionQ16 + '\n' +
+        'Circuit: [' + (queuedAlign || '?') + ' + ' + (queuedAction || '?') + (queuedPargons ? ' + ' + queuedPargons + 'x PARGON' : '') + '] | Relics: ' + invList;
+      requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+  </script>
+</body>
+</html>
