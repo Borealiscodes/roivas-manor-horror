@@ -211,7 +211,7 @@ export class ManorWorld {
       this.unsealedGates.add('OBSERVATORY_SEAL');
       this.dirichletTensionQ16 = 4096;
 
-this.statusLog = 'Red Chattur'gha shatters the Emerald Ward! The cellar stairs are open.';
+this.statusLog = 'Red Chattur\'gha shatters the Emerald Ward! The cellar stairs are open.';
 return { outcome: 'UNSEALED' };
 }
 if (this.currentRoom === 'OBSERVATORY' && spellAlign === ALIGN.MANTOROK && verbId === 'BANKOROK' && nounId === 'REDGORMOR' && pargonCount >= 1) {

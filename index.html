@@ -82,6 +82,8 @@
 
     let qAlign = null, qVerb = null, qNoun = null, qPargons = 0;
     let moveDir = 0;
+    let drawing = false;
+    let autoCommitTimer = null;
     let tick = 0;
     narrBar.textContent = world.statusLog;
 
@@ -112,10 +114,29 @@
       audio.triggerSting(329.63);
     }
 
+    function commitDrawnRune() {
+      const match = recognizer.commitGlyph();
+      if (!match || !match.runeId) return;
+      queueRune(match.runeId);
+      narrBar.textContent = 'Inscribed drawn rune: ' + match.runeId + ' (' + (((match.accuracyQ16 * 100) >> 16)) + '%)';
+      speak(match.runeId, true);
+    }
+
     document.getElementById('left-btn').addEventListener('pointerdown', () => { moveDir = -1; unlockAudio(); });
     document.getElementById('right-btn').addEventListener('pointerdown', () => { moveDir = 1; unlockAudio(); });
     document.getElementById('jump-btn').addEventListener('pointerdown', () => { world.jump(); unlockAudio(); });
-    window.addEventListener('pointerup', () => { moveDir = 0; recognizer.endStroke(); });
+    document.getElementById('commit-btn').addEventListener('click', commitDrawnRune);
+
+    window.addEventListener('pointerup', () => {
+      moveDir = 0;
+      if (drawing) {
+        drawing = false;
+        recognizer.endStroke();
+        if (autoCommitTimer) clearTimeout(autoCommitTimer);
+        autoCommitTimer = setTimeout(commitDrawnRune, 550);
+      }
+    });
+
     window.addEventListener('keydown', (e) => {
       if (e.key === 'ArrowLeft' || e.key === 'a') moveDir = -1;
       if (e.key === 'ArrowRight' || e.key === 'd') moveDir = 1;
@@ -139,11 +160,10 @@
       unlockAudio();
       const r = document.getElementById('quick-rune').value;
       queueRune(r);
-      narrBar.textContent = 'Inscribed ' + r + ' into ritual circuit.';
+      narrBar.textContent = 'Added ' + r + ' to ritual circuit.';
       speak(r, true);
     });
 
-    let drawing = false; let autoCommitTimer = null;
     function getPt(e) {
       const rect = canvas.getBoundingClientRect();
       return {
@@ -151,16 +171,17 @@
         y: q16Clamp((((e.clientY - rect.top) / rect.height) * FB_HEIGHT) | 0, 0, FB_HEIGHT - 1)
       };
     }
-    canvas.addEventListener('pointerdown', (e) => { unlockAudio(); drawing = true; const p = getPt(e); if (autoCommitTimer) clearTimeout(autoCommitTimer); recognizer.beginStroke(p.x, p.y); });
-    canvas.addEventListener('pointermove', (e) => { if (!drawing) return; const p = getPt(e); recognizer.addPoint(p.x, p.y); });
-    window.addEventListener('pointerup', () => { if (drawing) { drawing = false; recognizer.endStroke(); autoCommitTimer = setTimeout(() => document.getElementById('commit-btn').click(), 550); } });
-
-    document.getElementById('commit-btn').addEventListener('click', () => {
-      const match = recognizer.commitGlyph();
-      if (!match || !match.runeId) return;
-      queueRune(match.runeId);
-      narrBar.textContent = 'Drawn rune: ' + match.runeId + ' (' + (((match.accuracyQ16 * 100) >> 16)) + '%)';
-      speak(match.runeId, true);
+    canvas.addEventListener('pointerdown', (e) => {
+      unlockAudio();
+      if (autoCommitTimer) clearTimeout(autoCommitTimer);
+      drawing = true;
+      const p = getPt(e);
+      recognizer.beginStroke(p.x, p.y);
+    });
+    canvas.addEventListener('pointermove', (e) => {
+      if (!drawing) return;
+      const p = getPt(e);
+      recognizer.addPoint(p.x, p.y);
     });
 
     document.getElementById('cast-btn').addEventListener('click', () => {
@@ -177,6 +198,7 @@
     });
 
     document.getElementById('clear-btn').addEventListener('click', () => {
+      if (autoCommitTimer) clearTimeout(autoCommitTimer);
       recognizer.clear();
       qAlign = null; qVerb = null; qNoun = null; qPargons = 0;
       narrBar.textContent = 'Cleared active rune circuit.';
