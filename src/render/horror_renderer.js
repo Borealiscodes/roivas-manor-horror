@@ -1,33 +1,21 @@
-import { Q16_ONE, Q16_TAU, q16Clamp, q16Sin, q16Cos, q16Mul, q16Div } from '../core/q16.js';
-import { ALIGN } from '../world/manor_sheaf_world.js';
+import { Q16_ONE, Q16_TAU, q16Clamp, q16Sin, q16Cos } from '../core/q16.js';
 
 export const FB_WIDTH = 480;
 export const FB_HEIGHT = 272;
 
 const BAYER_4X4 = Uint8Array.of(0,8,2,10, 12,4,14,6, 3,11,1,9, 15,7,13,5);
 
-const SPRITE_INVESTIGATOR = Uint16Array.of(
-  0x03C, 0x07E, 0x05A, 0x07E, 0x03C, 0x0FF, 0x1BD, 0x1BD,
-  0x1FF, 0x0FF, 0x0EE, 0x0EE, 0x0EE, 0x06C, 0x06C, 0x0EE
-);
-
-const SPRITE_HORROR = Uint16Array.of(
-  0x108, 0x39C, 0x7FE, 0xD6B, 0xFFF, 0x7FE, 0x39C, 0x7FE,
-  0xDB6, 0x999, 0x108, 0x204, 0x402, 0x801, 0x000, 0x000
-);
-
 export function buildHorrorCLUT8() {
   const lut = new Uint32Array(256);
   const ramps = Array.of(
-    Array.of(240, 26, 44),   // 0: Chattur'gha (Blood Crimson)
-    Array.of(34, 145, 250),  // 1: Ulyaoth (Astral Cobalt)
-    Array.of(32, 232, 118),  // 2: Xel'lotath (Necrotic Emerald)
-    Array.of(185, 68, 245)   // 3: Mantorok (Void Amethyst)
+    Array.of(240, 28, 46),   // 0: Chattur'gha (Crimson)
+    Array.of(36, 148, 252),  // 1: Ulyaoth (Cobalt)
+    Array.of(34, 232, 120),  // 2: Xel'lotath (Emerald)
+    Array.of(185, 68, 245)   // 3: Mantorok (Amethyst)
   );
   for (let bank = 0; bank < 4; bank++) {
     const r0 = ramps.at(bank).at(0), g0 = ramps.at(bank).at(1), b0 = ramps.at(bank).at(2);
     for (let i = 0; i < 64; i++) {
-      // Index 0..3 are near pitch black for true shadow immersion
       const c = i < 4 ? i : ((i * i) >> 6);
       const r = Math.min(255, ((r0 * c) >> 6) + (i > 52 ? (i - 52) * 16 : 0));
       const g = Math.min(255, ((g0 * c) >> 6) + (i > 52 ? (i - 52) * 16 : 0));
@@ -49,128 +37,131 @@ export class HorrorFramebuffer {
   renderScene(world, strokes, currentStroke, tick) {
     const room = world.rooms[world.currentRoom];
     const bank = (room.ambienceAlign & 3) << 6;
+    const vx = 240, vy = 118; // 3D vanishing point
     const sanityRatio = q16Clamp(world.sanityQ16, 8192, Q16_ONE);
-    // Lantern radius shrinks as Sanity drops!
-    const lanternR = 65 + ((sanityRatio * 95) >> 16) + (((tick >> 2) & 3) - 1);
-    const lanternRSq = lanternR * lanternR;
-    const lx = world.playerX;
-    const ly = 188;
+    const lanternRadius = 75 + ((sanityRatio * 95) >> 16) + (((tick >> 2) & 3) - 1);
+    const lanternRSq = lanternRadius * lanternRadius;
 
-    // 1. Pitch-black shadow backdrop illuminated by Bayer-dithered lantern cone
+    // 1. 3D Perspective Floor/Ceiling + Volumetric Lantern Cone
     for (let y = 0; y < FB_HEIGHT; y++) {
       const row = y * FB_WIDTH;
       const bRow = (y & 3) << 2;
-      const dy = y - ly;
+      const dy = y - 132;
       const dy2 = dy * dy;
-      const floorBonus = y > 218 ? 6 : 0;
+      const isFloor = y > vy;
 
       for (let x = 0; x < FB_WIDTH; x++) {
-        const dx = x - lx;
+        const dx = x - vx;
         const d2 = dx * dx + dy2;
-        let light = 1;
+        let shade = 2;
         if (d2 < lanternRSq) {
-          const falloff = 26 - (((d2 * 24) / lanternRSq) | 0);
-          light = q16Clamp(falloff + floorBonus, 2, 32);
+          const beam = 28 - (((d2 * 25) / lanternRSq) | 0);
+          shade = q16Clamp(beam + (isFloor ? 4 : 0), 2, 34);
         }
         const dither = BAYER_4X4[bRow + (x & 3)] >> 2;
-        this.indices[row + x] = bank + q16Clamp(light + dither, 1, 36);
+        this.indices[row + x] = bank + q16Clamp(shade + dither, 1, 38);
       }
     }
 
-    // 2. Room Architecture (Gothic Windows / Shelves / Doorway Thresholds)
-    this.drawLine(0, 218, FB_WIDTH - 1, 218, bank + 24);
-    if (room.leftDoor) {
-      this.drawRectOutline(26, 136, 62, 218, bank + 34);
+    // 2. Receding 3D Gothic Corridor Perspective Lines & Pillars
+    const wallCol = bank + 28;
+    this.drawLine(0, 0, vx - 46, vy - 28, wallCol);
+    this.drawLine(FB_WIDTH - 1, 0, vx + 46, vy - 28, wallCol);
+    this.drawLine(0, FB_HEIGHT - 1, vx - 46, vy + 36, wallCol + 4);
+    this.drawLine(FB_WIDTH - 1, FB_HEIGHT - 1, vx + 46, vy + 36, wallCol + 4);
+
+    // Scrolling depth pillars based on player depth
+    for (let p = 0; p < 4; p++) {
+      const relZ = ((p * 28 - (world.depth % 28) + 112) % 112) + 8;
+      const scale = (1800 / relZ) | 0;
+      const halfW = q16Clamp(scale * 3, 46, 235);
+      const topY = q16Clamp(vy - ((scale * 2) | 0), 0, vy - 28);
+      const botY = q16Clamp(vy + ((scale * 2.5) | 0), vy + 36, FB_HEIGHT - 1);
+      const col = bank + q16Clamp(44 - (relZ >> 2), 14, 46);
+      this.drawLine(vx - halfW, topY, vx - halfW, botY, col);
+      this.drawLine(vx + halfW, topY, vx + halfW, botY, col);
+      this.drawLine(vx - halfW, botY, vx + halfW, botY, col - 4);
     }
-    if (room.rightDoor) {
-      const locked = room.rightDoor.gateId && !world.unsealedGates.has(room.rightDoor.gateId);
-      const doorColor = locked ? 52 : (bank + 38); // Glowing crimson lock if gated
-      this.drawRectOutline(418, 136, 454, 218, doorColor);
-      if (locked) {
-        this.drawLine(418, 136, 454, 218, 56);
-        this.drawLine(454, 136, 418, 218, 56);
+
+    // 3. Far Threshold Archway & Gated Barrier
+    this.drawRectOutline(vx - 46, vy - 28, vx + 46, vy + 36, bank + 44);
+    if (room.gateId && !world.unsealedGates.has(room.gateId)) {
+      const pulse = (q16Sin((tick * 3200) % Q16_TAU) * 6) >> 16;
+      // Organic crimson flesh barrier / lock seal
+      for (let w = -36; w <= 36; w += 12) {
+        this.drawLine(vx + w, vy - 28, vx + w + pulse, vy + 36, 54);
       }
+      this.drawLine(vx - 46, vy + pulse, vx + 46, vy - pulse, 60);
     }
 
-    // 3. Interactive Props
-    for (const prop of room.props) {
-      const taken = prop.item && prop.item !== 'VICTORY_PENDING' && world.inventory.has(prop.item);
-      const col = taken ? (bank + 22) : (bank + 48);
-      this.drawRectOutline(prop.x - 14, 174, prop.x + 14, 218, col);
-      if (!taken) this.drawCircleOutline(prop.x, 166, 4, bank + 60, 12);
+    // 4. Mid-Room Relic / Prop scaled by perspective distance
+    const propDist = Math.max(12, Math.abs(room.prop.depth - world.depth) + 18);
+    const pSize = q16Clamp((520 / propDist) | 0, 8, 36);
+    const py = vy + pSize;
+    const taken = room.prop.item && room.prop.item !== 'ALTAR' && world.inventory.has(room.prop.item);
+    this.drawRectOutline(vx - pSize, py - pSize, vx + pSize, py + pSize, taken ? (bank + 24) : (bank + 58));
+
+    // 5. Floating 3D Octahedron Crystal (Observatory or high tension)
+    if (world.currentRoom === 'OBSERVATORY' || world.dirichletTensionQ16 > 20000) {
+      this.renderCrystal3D(vx, vy - 6, world.activeSpellAlign, world.dirichletTensionQ16, tick);
     }
 
-    // 4. Floating 3D Octahedron Crystal in Observatory (or hovering reflection)
-    if (world.currentRoom === 'OBSERVATORY' || world.dirichletTensionQ16 > 24000) {
-      this.renderCrystal3D(240, 88, world.activeSpellAlign, world.dirichletTensionQ16, tick);
-    }
-
-    // 5. Investigator Sprite
-    this.blitSprite(SPRITE_INVESTIGATOR, world.playerX - 18, 170, 3, bank + 58);
-
-    // 6. Stalking Horror Sprite (Glowing eyes visible even in pitch darkness!)
+    // 6. Looming Horror in 3D Depth
     if (room.horror && room.horror.alive) {
       const hBank = (room.horror.align & 3) << 6;
-      const hx = room.horror.x - 18;
-      const hy = 166 + (((tick >> 3) & 3) - 1);
-      // Only show full body if inside lantern beam; otherwise only glowing eyes pierce the dark!
-      if (Math.abs(room.horror.x - lx) < lanternR + 20) {
-        this.blitSprite(SPRITE_HORROR, hx, hy, 3, hBank + 54);
-      }
-      this.indices[(hy + 9) * FB_WIDTH + (hx + 12)] = hBank + 63;
-      this.indices[(hy + 9) * FB_WIDTH + (hx + 21)] = hBank + 63;
+      const hDist = Math.max(10, Math.abs(room.horror.depth - world.depth) + 12);
+      const hScale = q16Clamp((720 / hDist) | 0, 10, 52);
+      const hy = vy + (hScale >> 1);
+      // Jagged horror silhouette + glowing eyes
+      this.drawLine(vx - hScale, hy + hScale, vx, hy - hScale, hBank + 46);
+      this.drawLine(vx + hScale, hy + hScale, vx, hy - hScale, hBank + 46);
+      this.drawLine(vx - (hScale >> 1), hy, vx + (hScale >> 1), hy, hBank + 52);
+      this.drawCircleOutline(vx - (hScale >> 2), hy - (hScale >> 2), 2, hBank + 63, 8);
+      this.drawCircleOutline(vx + (hScale >> 2), hy - (hScale >> 2), 2, hBank + 63, 8);
     }
 
-    // 7. Live Multi-Stroke Rune Ink Overlay
+    // 7. Over-the-Shoulder Investigator Foreground Silhouette (Lower-Left)
+    const bobY = ((q16Sin((tick * 4800) % Q16_TAU) * 2) >> 16);
+    for (let sy = 178 + bobY; sy < FB_HEIGHT; sy++) {
+      const shoulderW = q16Clamp((sy - 170) * 1.4 | 0, 12, 92);
+      this.drawLine(58 - (shoulderW >> 1), sy, 58 + shoulderW, sy, bank + 6);
+    }
+    // Head silhouette + extended lantern arm
+    this.drawCircleOutline(68, 162 + bobY, 16, bank + 18, 20);
+    this.drawLine(98, 212 + bobY, 136, 178 + bobY, bank + 28);
+    this.drawCircleOutline(138, 172 + bobY, 6 + ((tick >> 2) & 1), bank + 63, 12);
+
+    // 8. Multi-Stroke Rune Ink Overlay
     const inkColor = ((world.activeSpellAlign & 3) << 6) + 63;
     for (const st of strokes) this.drawPoly(st, inkColor);
     if (currentStroke.length > 1) this.drawPoly(currentStroke, inkColor);
 
-    // 8. Low-Sanity Crimson Wall-Bleed
-    if (world.sanityQ16 < 36000) {
-      const drips = (36000 - world.sanityQ16) >> 10;
+    // 9. Low-Sanity Crimson Wall-Bleed
+    if (world.sanityQ16 < 38000) {
+      const drips = (38000 - world.sanityQ16) >> 10;
       for (let i = 0; i < drips; i++) {
         const dx = ((i * 73 + tick * 3) % (FB_WIDTH - 4)) + 2;
         const len = 12 + ((i * 29 + tick) & 31);
-        this.drawLine(dx, 0, dx, len, 46);
+        this.drawLine(dx, 0, dx, len, 48);
       }
     }
   }
 
   renderCrystal3D(cx, baseCy, align, tension, tick) {
     this.rotY = (this.rotY + 1400 + (tension >> 7)) % Q16_TAU;
-    const cy = baseCy + ((q16Sin((tick * 2400) % Q16_TAU) * 5) >> 16);
-    const r = 24 + (tension >> 12);
-    const cosY = q16Cos(this.rotY), sinY = q16Sin(this.rotY);
+    const cy = baseCy + ((q16Sin((tick * 2400) % Q16_TAU) * 4) >> 16);
+    const r = 22 + (tension >> 12);
     const bank = (align & 3) << 6;
-    const top = { x: cx, y: cy - 30 }, bot = { x: cx, y: cy + 30 };
+    const top = { x: cx, y: cy - 28 }, bot = { x: cx, y: cy + 28 };
     const ring = Array.from({ length: 4 }, (_, i) => {
       const a = this.rotY + i * 102944;
-      return { x: cx + ((r * q16Cos(a)) >> 16), y: cy + ((10 * q16Sin(a)) >> 16) };
+      return { x: cx + ((r * q16Cos(a)) >> 16), y: cy + ((9 * q16Sin(a)) >> 16) };
     });
     for (let i = 0; i < 4; i++) {
       const p0 = ring.at(i), p1 = ring.at((i + 1) & 3);
       this.drawLine(top.x, top.y, p0.x, p0.y, bank + 62);
       this.drawLine(bot.x, bot.y, p0.x, p0.y, bank + 54);
       this.drawLine(p0.x, p0.y, p1.x, p1.y, bank + 63);
-    }
-  }
-
-  blitSprite(rows, x, y, scale, colorIdx) {
-    for (let r = 0; r < 16; r++) {
-      const bits = rows.at(r);
-      for (let c = 0; c < 12; c++) {
-        if ((bits >> (11 - c)) & 1) {
-          for (let sy = 0; sy < scale; sy++) {
-            const py = y + r * scale + sy;
-            if (py < 0 || py >= FB_HEIGHT) continue;
-            for (let sx = 0; sx < scale; sx++) {
-              const px = x + c * scale + sx;
-              if (px >= 0 && px < FB_WIDTH) this.indices[py * FB_WIDTH + px] = colorIdx;
-            }
-          }
-        }
-      }
     }
   }
 
@@ -191,7 +182,7 @@ export class HorrorFramebuffer {
   drawCircleOutline(cx, cy, r, c, segs = 16) {
     let px = cx + r, py = cy;
     for (let i = 1; i <= segs; i++) {
-      const a = q16Div(i * Q16_TAU, segs << 16);
+      const a = ((i * Q16_TAU) / segs) | 0;
       const nx = cx + ((r * q16Cos(a)) >> 16), ny = cy + ((r * q16Sin(a)) >> 16);
       this.drawLine(px, py, nx, ny, c);
       px = nx; py = ny;
