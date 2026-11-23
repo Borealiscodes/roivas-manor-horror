@@ -200,9 +200,11 @@
       hud.textContent =
         'Room: ' + room.name + stealth + ' | Sanity: ' + ((state.sanityQ16 * 100) >> 16) + '%\n' +
         'Circuit: [' + (qAlign || 'Align?') + ' + ' + (qVerb || 'Verb?') + ' + ' + (qNoun || 'Noun?') + (qPargons ? ' + ' + qPargons + 'x PARGON' : '') + '] | Relics: ' + inv;
+      document.getElementById("journal-list").innerHTML = world.journal.map(e => "<p style=\"margin-bottom:4px;\">• " + e + "</p>").join("");
       requestAnimationFrame(frame);
     }
-    requestAnimationFrame(frame);
+    document.getElementById("journal-list").innerHTML = world.journal.map(e => "<p style=\"margin-bottom:4px;\">• " + e + "</p>").join("");
+      requestAnimationFrame(frame);
   </script>
 </body>
 </html>

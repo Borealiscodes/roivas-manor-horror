@@ -8,10 +8,10 @@ const BAYER_4X4 = Uint8Array.of(0,8,2,10, 12,4,14,6, 3,11,1,9, 15,7,13,5);
 export function buildHorrorCLUT8() {
   const lut = new Uint32Array(256);
   const ramps = Array.of(
-    Array.of(235, 32, 52),   // 0: Chattur'gha (Crimson)
-    Array.of(42, 150, 248),  // 1: Ulyaoth (Cobalt)
-    Array.of(38, 226, 122),  // 2: Xel'lotath (Emerald)
-    Array.of(182, 74, 242)   // 3: Mantorok (Amethyst)
+    Array.of(235, 32, 52),
+    Array.of(42, 150, 248),
+    Array.of(38, 226, 122),
+    Array.of(182, 74, 242)
   );
   for (let bank = 0; bank < 4; bank++) {
     const r0 = ramps.at(bank).at(0), g0 = ramps.at(bank).at(1), b0 = ramps.at(bank).at(2);
@@ -41,10 +41,9 @@ export class HorrorFramebuffer {
     const lx = p.x + (p.facing * 12);
     const ly = p.y + 14;
     const sanityRatio = q16Clamp(world.sanityQ16, 8192, Q16_ONE);
-    const lanternR = (p.hidden ? 38 : 85) + ((sanityRatio * 85) >> 16);
+    const lanternR = (p.hidden ? 40 : 90) + ((sanityRatio * 85) >> 16);
     const lanternRSq = lanternR * lanternR;
 
-    // 1. 2.5D Parallax Gothic Room + Lantern Radial Falloff
     for (let y = 0; y < FB_HEIGHT; y++) {
       const row = y * FB_WIDTH;
       const bRow = (y & 3) << 2;
@@ -65,7 +64,6 @@ export class HorrorFramebuffer {
       }
     }
 
-    // 2. Gothic Arched Windows & Floorboards (2.5D depth lines)
     this.drawLine(0, 218, FB_WIDTH - 1, 218, bank + 34);
     for (const wx of Array.of(95, 240, 385)) {
       this.drawLine(wx - 22, 165, wx - 22, 54, bank + 22);
@@ -75,7 +73,6 @@ export class HorrorFramebuffer {
       this.drawLine(wx - 24, 165, wx + 24, 165, bank + 24);
     }
 
-    // 3. Stealth Shadow Alcoves (Dark vertical curtains where player can hide)
     for (const sh of room.shadows) {
       for (let y = 148; y < 218; y++) {
         const row = y * FB_WIDTH;
@@ -84,7 +81,6 @@ export class HorrorFramebuffer {
       this.drawRectOutline(sh.x, 148, sh.x + sh.w, 218, bank + 18);
     }
 
-    // 4. Platforming Ledges & Pushable Tactile Crate
     for (const plat of room.platforms) {
       this.fillRect(plat.x, plat.y, plat.x + plat.w, plat.y + plat.h, bank + 28);
       this.drawRectOutline(plat.x, plat.y, plat.x + plat.w, plat.y + plat.h, bank + 46);
@@ -96,7 +92,6 @@ export class HorrorFramebuffer {
       this.drawLine(c.x, c.y, c.x + c.w, c.y + c.h, bank + 44);
     }
 
-    // 5. Left & Right Threshold Doorways
     if (room.backRoom) this.drawRectOutline(22, 142, 56, 218, bank + 36);
     if (room.nextRoom) {
       const locked = room.gateId && !world.unsealedGates.has(room.gateId);
@@ -109,31 +104,28 @@ export class HorrorFramebuffer {
       }
     }
 
-    // 6. Interactive Relic / Item Prop
-    const prop = room.prop;
-    const taken = prop.item && prop.item !== 'ALTAR' && world.inventory.has(prop.item);
-    this.drawRectOutline(prop.x - 10, prop.y - 10, prop.x + 10, prop.y + 10, taken ? (bank + 20) : (bank + 62));
-    if (!taken) this.drawCircleOutline(prop.x, prop.y - 16, 4 + ((tick >> 3) & 1), bank + 63, 12);
+    // Render all interactive story clues & relics in the room
+    for (const prop of room.props) {
+      const taken = prop.item && prop.item !== 'ALTAR' && world.inventory.has(prop.item);
+      const col = prop.item ? (taken ? bank + 20 : bank + 62) : (bank + 46);
+      this.drawRectOutline(prop.x - 9, prop.y - 9, prop.x + 9, prop.y + 9, col);
+      if (!taken) this.drawCircleOutline(prop.x, prop.y - 15, 3 + ((tick >> 3) & 1), bank + 63, 10);
+    }
 
-    // 7. Floating 3D Octahedron Crystal in Observatory
     if (world.currentRoom === 'OBSERVATORY' || world.dirichletTensionQ16 > 24000) {
       this.renderCrystal3D(240, 86, world.activeSpellAlign, world.dirichletTensionQ16, tick);
     }
 
-    // 8. Articulated Little Nightmares–Style Investigator Silhouette (Hooded Coat + Stride + Lantern)
     this.drawInvestigator(p, bank, tick);
 
-    // 9. Towering Watcher Horror + Volumetric Searchlight Gaze Cone
     if (room.watcher && room.watcher.alive) {
       this.drawWatcher(room.watcher, spotted, tick);
     }
 
-    // 10. Multi-Stroke Rune Ink Overlay
     const inkColor = ((world.activeSpellAlign & 3) << 6) + 63;
     for (const st of strokes) this.drawPoly(st, inkColor);
     if (currentStroke.length > 1) this.drawPoly(currentStroke, inkColor);
 
-    // 11. Low-Sanity Crimson Wall-Bleed
     if (world.sanityQ16 < 38000) {
       const drips = (38000 - world.sanityQ16) >> 10;
       for (let i = 0; i < drips; i++) {
@@ -144,25 +136,22 @@ export class HorrorFramebuffer {
     }
   }
 
-  /** Articulated Little Nightmares–style small hooded figure with animated coat & swinging lantern */
   drawInvestigator(p, bank, tick) {
     const cx = p.x | 0;
-    const topY = (p.y | 0) + (p.grounded ? ((q16Sin((tick * 5200) % Q16_TAU) * 1) >> 16) : -2);
+    const breath = ((q16Sin((tick * 3600) % Q16_TAU) * 1) >> 16);
+    const topY = (p.y | 0) + (p.grounded ? breath : -2);
     const coatCol = p.hidden ? (bank + 12) : (bank + 52);
     const trimCol = p.hidden ? (bank + 22) : (bank + 63);
 
-    // Pointed Raincoat Hood (triangular silhouette)
     this.fillTri({ x: cx, y: topY }, { x: cx - 8, y: topY + 12 }, { x: cx + 8, y: topY + 12 }, coatCol);
-    // Flowing A-line trenchcoat body
     this.fillTri({ x: cx, y: topY + 8 }, { x: cx - 10, y: topY + 25 }, { x: cx + 10, y: topY + 25 }, coatCol);
     this.drawLine(cx - 10, topY + 25, cx + 10, topY + 25, trimCol);
 
-    // Animated striding legs
-    const stride = p.grounded ? (((q16Sin((tick * 9000) % Q16_TAU) * 4) >> 16) * (p.facing)) : 3;
+    // Legs only stride when p.moving is true; otherwise stand firmly planted
+    const stride = !p.grounded ? 3 : p.moving ? (((q16Sin((tick * 11000) % Q16_TAU) * 4) >> 16) * p.facing) : 0;
     this.drawLine(cx - 3, topY + 25, cx - 3 - stride, topY + 32, trimCol);
     this.drawLine(cx + 3, topY + 25, cx + 3 + stride, topY + 32, trimCol);
 
-    // Extended arm holding glowing oil lantern
     const handX = cx + p.facing * 11;
     const handY = topY + 16;
     this.drawLine(cx + p.facing * 4, topY + 14, handX, handY, trimCol);
@@ -172,22 +161,17 @@ export class HorrorFramebuffer {
     }
   }
 
-  /** Towering hunched Watcher with searchlight gaze cone */
   drawWatcher(w, spotted, tick) {
     const hBank = (w.align & 3) << 6;
     const wx = w.x | 0;
     const wy = 152 + (((tick >> 3) & 3) - 1);
-
-    // Searchlight gaze triangle
     const beamCol = spotted ? 56 : (hBank + 20);
     const reach = wx + w.dir * 110;
     this.drawLine(wx, wy + 12, reach, 182, beamCol);
     this.drawLine(wx, wy + 12, reach, 218, beamCol);
 
-    // Tall hunched silhouette
     this.fillTri({ x: wx, y: wy }, { x: wx - 16, y: 218 }, { x: wx + 16, y: 218 }, hBank + 36);
     this.drawRectOutline(wx - 8, wy - 8, wx + 8, wy + 6, hBank + 54);
-    // Glowing eyes
     const eyeX = wx + w.dir * 4;
     this.fillRect(eyeX - 1, wy - 3, eyeX + 2, wy - 1, spotted ? 63 : (hBank + 63));
   }
@@ -230,28 +214,31 @@ export class HorrorFramebuffer {
         const w0 = (b.x - a.x) * (y - a.y) - (b.y - a.y) * (x - a.x);
         const w1 = (c.x - b.x) * (y - b.y) - (c.y - b.y) * (x - b.x);
         const w2 = (a.x - c.x) * (y - c.y) - (a.y - c.y) * (x - c.x);
-if ((area > 0 && w0 >= 0 && w1 >= 0 && w2 >= 0) || (area < 0 && w0 <= 0 && w1 <= 0 && w2 <= 0)) {
-this.indices[row + x] = col;
-}
-}
-}
-}
-drawPoly(pts, c) {
-for (let i = 1; i < pts.length; i++) {
-this.drawLine(pts.at(i - 1).x, pts.at(i - 1).y, pts.at(i).x, pts.at(i).y, c);
-this.drawLine(pts.at(i - 1).x + 1, pts.at(i - 1).y, pts.at(i).x + 1, pts.at(i).y, c - 8);
-}
-}
-drawRectOutline(x0, y0, x1, y1, c) {
-this.drawLine(x0, y0, x1, y0, c);
-this.drawLine(x1, y0, x1, y1, c);
-this.drawLine(x1, y1, x0, y1, c);
-this.drawLine(x0, y1, x0, y0, c);
-}
-drawCircleOutline(cx, cy, r, c, segs = 16) {
-let px = cx + r, py = cy;
-for (let i = 1; i <= segs; i++) {
-const a = ((i * Q16_TAU) / segs) | 0;
+        if ((area > 0 && w0 >= 0 && w1 >= 0 && w2 >= 0) || (area < 0 && w0 <= 0 && w1 <= 0 && w2 <= 0)) {
+          this.indices[row + x] = col;
+        }
+      }
+    }
+  }
+
+  drawPoly(pts, c) {
+    for (let i = 1; i < pts.length; i++) {
+      this.drawLine(pts.at(i - 1).x, pts.at(i - 1).y, pts.at(i).x, pts.at(i).y, c);
+      this.drawLine(pts.at(i - 1).x + 1, pts.at(i - 1).y, pts.at(i).x + 1, pts.at(i).y, c - 8);
+    }
+  }
+
+  drawRectOutline(x0, y0, x1, y1, c) {
+    this.drawLine(x0, y0, x1, y0, c);
+    this.drawLine(x1, y0, x1, y1, c);
+    this.drawLine(x1, y1, x0, y1, c);
+    this.drawLine(x0, y1, x0, y0, c);
+  }
+
+  drawCircleOutline(cx, cy, r, c, segs = 16) {
+    let px = cx + r, py = cy;
+    for (let i = 1; i <= segs; i++) {
+      const a = ((i * Q16_TAU) / segs) | 0;
 const nx = cx + ((r * q16Cos(a)) >> 16), ny = cy + ((r * q16Sin(a)) >> 16);
 this.drawLine(px, py, nx, ny, c);
 px = nx; py = ny;
