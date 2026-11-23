@@ -8,10 +8,10 @@ const BAYER_4X4 = Uint8Array.of(0,8,2,10, 12,4,14,6, 3,11,1,9, 15,7,13,5);
 export function buildHorrorCLUT8() {
   const lut = new Uint32Array(256);
   const ramps = Array.of(
-    Array.of(240, 28, 46),   // 0: Chattur'gha (Crimson)
-    Array.of(36, 148, 252),  // 1: Ulyaoth (Cobalt)
-    Array.of(34, 232, 120),  // 2: Xel'lotath (Emerald)
-    Array.of(185, 68, 245)   // 3: Mantorok (Amethyst)
+    Array.of(235, 32, 52),   // 0: Chattur'gha (Crimson)
+    Array.of(42, 150, 248),  // 1: Ulyaoth (Cobalt)
+    Array.of(38, 226, 122),  // 2: Xel'lotath (Emerald)
+    Array.of(182, 74, 242)   // 3: Mantorok (Amethyst)
   );
   for (let bank = 0; bank < 4; bank++) {
     const r0 = ramps.at(bank).at(0), g0 = ramps.at(bank).at(1), b0 = ramps.at(bank).at(2);
@@ -34,109 +34,106 @@ export class HorrorFramebuffer {
     this.rotY = 0;
   }
 
-  renderScene(world, strokes, currentStroke, tick) {
+  renderScene(world, strokes, currentStroke, tick, spotted = false) {
     const room = world.rooms[world.currentRoom];
     const bank = (room.ambienceAlign & 3) << 6;
-    const vx = 240, vy = 118; // 3D vanishing point
+    const p = world.player;
+    const lx = p.x + (p.facing * 12);
+    const ly = p.y + 14;
     const sanityRatio = q16Clamp(world.sanityQ16, 8192, Q16_ONE);
-    const lanternRadius = 75 + ((sanityRatio * 95) >> 16) + (((tick >> 2) & 3) - 1);
-    const lanternRSq = lanternRadius * lanternRadius;
+    const lanternR = (p.hidden ? 38 : 85) + ((sanityRatio * 85) >> 16);
+    const lanternRSq = lanternR * lanternR;
 
-    // 1. 3D Perspective Floor/Ceiling + Volumetric Lantern Cone
+    // 1. 2.5D Parallax Gothic Room + Lantern Radial Falloff
     for (let y = 0; y < FB_HEIGHT; y++) {
       const row = y * FB_WIDTH;
       const bRow = (y & 3) << 2;
-      const dy = y - 132;
+      const dy = y - ly;
       const dy2 = dy * dy;
-      const isFloor = y > vy;
+      const isFloor = y >= 218;
 
       for (let x = 0; x < FB_WIDTH; x++) {
-        const dx = x - vx;
+        const dx = x - lx;
         const d2 = dx * dx + dy2;
-        let shade = 2;
+        let light = isFloor ? 8 : 3;
         if (d2 < lanternRSq) {
-          const beam = 28 - (((d2 * 25) / lanternRSq) | 0);
-          shade = q16Clamp(beam + (isFloor ? 4 : 0), 2, 34);
+          const beam = 26 - (((d2 * 22) / lanternRSq) | 0);
+          light = q16Clamp(beam + (isFloor ? 6 : 0), 3, 34);
         }
         const dither = BAYER_4X4[bRow + (x & 3)] >> 2;
-        this.indices[row + x] = bank + q16Clamp(shade + dither, 1, 38);
+        this.indices[row + x] = bank + q16Clamp(light + dither, 1, 38);
       }
     }
 
-    // 2. Receding 3D Gothic Corridor Perspective Lines & Pillars
-    const wallCol = bank + 28;
-    this.drawLine(0, 0, vx - 46, vy - 28, wallCol);
-    this.drawLine(FB_WIDTH - 1, 0, vx + 46, vy - 28, wallCol);
-    this.drawLine(0, FB_HEIGHT - 1, vx - 46, vy + 36, wallCol + 4);
-    this.drawLine(FB_WIDTH - 1, FB_HEIGHT - 1, vx + 46, vy + 36, wallCol + 4);
-
-    // Scrolling depth pillars based on player depth
-    for (let p = 0; p < 4; p++) {
-      const relZ = ((p * 28 - (world.depth % 28) + 112) % 112) + 8;
-      const scale = (1800 / relZ) | 0;
-      const halfW = q16Clamp(scale * 3, 46, 235);
-      const topY = q16Clamp(vy - ((scale * 2) | 0), 0, vy - 28);
-      const botY = q16Clamp(vy + ((scale * 2.5) | 0), vy + 36, FB_HEIGHT - 1);
-      const col = bank + q16Clamp(44 - (relZ >> 2), 14, 46);
-      this.drawLine(vx - halfW, topY, vx - halfW, botY, col);
-      this.drawLine(vx + halfW, topY, vx + halfW, botY, col);
-      this.drawLine(vx - halfW, botY, vx + halfW, botY, col - 4);
+    // 2. Gothic Arched Windows & Floorboards (2.5D depth lines)
+    this.drawLine(0, 218, FB_WIDTH - 1, 218, bank + 34);
+    for (const wx of Array.of(95, 240, 385)) {
+      this.drawLine(wx - 22, 165, wx - 22, 54, bank + 22);
+      this.drawLine(wx + 22, 165, wx + 22, 54, bank + 22);
+      this.drawLine(wx - 22, 54, wx, 28, bank + 28);
+      this.drawLine(wx + 22, 54, wx, 28, bank + 28);
+      this.drawLine(wx - 24, 165, wx + 24, 165, bank + 24);
     }
 
-    // 3. Far Threshold Archway & Gated Barrier
-    this.drawRectOutline(vx - 46, vy - 28, vx + 46, vy + 36, bank + 44);
-    if (room.gateId && !world.unsealedGates.has(room.gateId)) {
-      const pulse = (q16Sin((tick * 3200) % Q16_TAU) * 6) >> 16;
-      // Organic crimson flesh barrier / lock seal
-      for (let w = -36; w <= 36; w += 12) {
-        this.drawLine(vx + w, vy - 28, vx + w + pulse, vy + 36, 54);
+    // 3. Stealth Shadow Alcoves (Dark vertical curtains where player can hide)
+    for (const sh of room.shadows) {
+      for (let y = 148; y < 218; y++) {
+        const row = y * FB_WIDTH;
+        for (let x = sh.x; x < sh.x + sh.w; x++) this.indices[row + x] = bank + 1;
       }
-      this.drawLine(vx - 46, vy + pulse, vx + 46, vy - pulse, 60);
+      this.drawRectOutline(sh.x, 148, sh.x + sh.w, 218, bank + 18);
     }
 
-    // 4. Mid-Room Relic / Prop scaled by perspective distance
-    const propDist = Math.max(12, Math.abs(room.prop.depth - world.depth) + 18);
-    const pSize = q16Clamp((520 / propDist) | 0, 8, 36);
-    const py = vy + pSize;
-    const taken = room.prop.item && room.prop.item !== 'ALTAR' && world.inventory.has(room.prop.item);
-    this.drawRectOutline(vx - pSize, py - pSize, vx + pSize, py + pSize, taken ? (bank + 24) : (bank + 58));
-
-    // 5. Floating 3D Octahedron Crystal (Observatory or high tension)
-    if (world.currentRoom === 'OBSERVATORY' || world.dirichletTensionQ16 > 20000) {
-      this.renderCrystal3D(vx, vy - 6, world.activeSpellAlign, world.dirichletTensionQ16, tick);
+    // 4. Platforming Ledges & Pushable Tactile Crate
+    for (const plat of room.platforms) {
+      this.fillRect(plat.x, plat.y, plat.x + plat.w, plat.y + plat.h, bank + 28);
+      this.drawRectOutline(plat.x, plat.y, plat.x + plat.w, plat.y + plat.h, bank + 46);
+    }
+    if (room.crate) {
+      const c = room.crate;
+      this.fillRect(c.x, c.y, c.x + c.w, c.y + c.h, bank + 32);
+      this.drawRectOutline(c.x, c.y, c.x + c.w, c.y + c.h, bank + 54);
+      this.drawLine(c.x, c.y, c.x + c.w, c.y + c.h, bank + 44);
     }
 
-    // 6. Looming Horror in 3D Depth
-    if (room.horror && room.horror.alive) {
-      const hBank = (room.horror.align & 3) << 6;
-      const hDist = Math.max(10, Math.abs(room.horror.depth - world.depth) + 12);
-      const hScale = q16Clamp((720 / hDist) | 0, 10, 52);
-      const hy = vy + (hScale >> 1);
-      // Jagged horror silhouette + glowing eyes
-      this.drawLine(vx - hScale, hy + hScale, vx, hy - hScale, hBank + 46);
-      this.drawLine(vx + hScale, hy + hScale, vx, hy - hScale, hBank + 46);
-      this.drawLine(vx - (hScale >> 1), hy, vx + (hScale >> 1), hy, hBank + 52);
-      this.drawCircleOutline(vx - (hScale >> 2), hy - (hScale >> 2), 2, hBank + 63, 8);
-      this.drawCircleOutline(vx + (hScale >> 2), hy - (hScale >> 2), 2, hBank + 63, 8);
+    // 5. Left & Right Threshold Doorways
+    if (room.backRoom) this.drawRectOutline(22, 142, 56, 218, bank + 36);
+    if (room.nextRoom) {
+      const locked = room.gateId && !world.unsealedGates.has(room.gateId);
+      const col = locked ? 56 : (bank + 44);
+      this.drawRectOutline(424, 142, 458, 218, col);
+      if (locked) {
+        const pulse = (q16Sin((tick * 3200) % Q16_TAU) * 4) >> 16;
+        this.drawLine(424, 142 + pulse, 458, 218 - pulse, 58);
+        this.drawLine(458, 142 - pulse, 424, 218 + pulse, 58);
+      }
     }
 
-    // 7. Over-the-Shoulder Investigator Foreground Silhouette (Lower-Left)
-    const bobY = ((q16Sin((tick * 4800) % Q16_TAU) * 2) >> 16);
-    for (let sy = 178 + bobY; sy < FB_HEIGHT; sy++) {
-      const shoulderW = q16Clamp((sy - 170) * 1.4 | 0, 12, 92);
-      this.drawLine(58 - (shoulderW >> 1), sy, 58 + shoulderW, sy, bank + 6);
-    }
-    // Head silhouette + extended lantern arm
-    this.drawCircleOutline(68, 162 + bobY, 16, bank + 18, 20);
-    this.drawLine(98, 212 + bobY, 136, 178 + bobY, bank + 28);
-    this.drawCircleOutline(138, 172 + bobY, 6 + ((tick >> 2) & 1), bank + 63, 12);
+    // 6. Interactive Relic / Item Prop
+    const prop = room.prop;
+    const taken = prop.item && prop.item !== 'ALTAR' && world.inventory.has(prop.item);
+    this.drawRectOutline(prop.x - 10, prop.y - 10, prop.x + 10, prop.y + 10, taken ? (bank + 20) : (bank + 62));
+    if (!taken) this.drawCircleOutline(prop.x, prop.y - 16, 4 + ((tick >> 3) & 1), bank + 63, 12);
 
-    // 8. Multi-Stroke Rune Ink Overlay
+    // 7. Floating 3D Octahedron Crystal in Observatory
+    if (world.currentRoom === 'OBSERVATORY' || world.dirichletTensionQ16 > 24000) {
+      this.renderCrystal3D(240, 86, world.activeSpellAlign, world.dirichletTensionQ16, tick);
+    }
+
+    // 8. Articulated Little Nightmares–Style Investigator Silhouette (Hooded Coat + Stride + Lantern)
+    this.drawInvestigator(p, bank, tick);
+
+    // 9. Towering Watcher Horror + Volumetric Searchlight Gaze Cone
+    if (room.watcher && room.watcher.alive) {
+      this.drawWatcher(room.watcher, spotted, tick);
+    }
+
+    // 10. Multi-Stroke Rune Ink Overlay
     const inkColor = ((world.activeSpellAlign & 3) << 6) + 63;
     for (const st of strokes) this.drawPoly(st, inkColor);
     if (currentStroke.length > 1) this.drawPoly(currentStroke, inkColor);
 
-    // 9. Low-Sanity Crimson Wall-Bleed
+    // 11. Low-Sanity Crimson Wall-Bleed
     if (world.sanityQ16 < 38000) {
       const drips = (38000 - world.sanityQ16) >> 10;
       for (let i = 0; i < drips; i++) {
@@ -147,12 +144,60 @@ export class HorrorFramebuffer {
     }
   }
 
+  /** Articulated Little Nightmares–style small hooded figure with animated coat & swinging lantern */
+  drawInvestigator(p, bank, tick) {
+    const cx = p.x | 0;
+    const topY = (p.y | 0) + (p.grounded ? ((q16Sin((tick * 5200) % Q16_TAU) * 1) >> 16) : -2);
+    const coatCol = p.hidden ? (bank + 12) : (bank + 52);
+    const trimCol = p.hidden ? (bank + 22) : (bank + 63);
+
+    // Pointed Raincoat Hood (triangular silhouette)
+    this.fillTri({ x: cx, y: topY }, { x: cx - 8, y: topY + 12 }, { x: cx + 8, y: topY + 12 }, coatCol);
+    // Flowing A-line trenchcoat body
+    this.fillTri({ x: cx, y: topY + 8 }, { x: cx - 10, y: topY + 25 }, { x: cx + 10, y: topY + 25 }, coatCol);
+    this.drawLine(cx - 10, topY + 25, cx + 10, topY + 25, trimCol);
+
+    // Animated striding legs
+    const stride = p.grounded ? (((q16Sin((tick * 9000) % Q16_TAU) * 4) >> 16) * (p.facing)) : 3;
+    this.drawLine(cx - 3, topY + 25, cx - 3 - stride, topY + 32, trimCol);
+    this.drawLine(cx + 3, topY + 25, cx + 3 + stride, topY + 32, trimCol);
+
+    // Extended arm holding glowing oil lantern
+    const handX = cx + p.facing * 11;
+    const handY = topY + 16;
+    this.drawLine(cx + p.facing * 4, topY + 14, handX, handY, trimCol);
+    if (!p.hidden) {
+      this.fillRect(handX - 2, handY, handX + 2, handY + 5, bank + 63);
+      this.drawCircleOutline(handX, handY + 3, 5 + ((tick >> 2) & 1), bank + 60, 10);
+    }
+  }
+
+  /** Towering hunched Watcher with searchlight gaze cone */
+  drawWatcher(w, spotted, tick) {
+    const hBank = (w.align & 3) << 6;
+    const wx = w.x | 0;
+    const wy = 152 + (((tick >> 3) & 3) - 1);
+
+    // Searchlight gaze triangle
+    const beamCol = spotted ? 56 : (hBank + 20);
+    const reach = wx + w.dir * 110;
+    this.drawLine(wx, wy + 12, reach, 182, beamCol);
+    this.drawLine(wx, wy + 12, reach, 218, beamCol);
+
+    // Tall hunched silhouette
+    this.fillTri({ x: wx, y: wy }, { x: wx - 16, y: 218 }, { x: wx + 16, y: 218 }, hBank + 36);
+    this.drawRectOutline(wx - 8, wy - 8, wx + 8, wy + 6, hBank + 54);
+    // Glowing eyes
+    const eyeX = wx + w.dir * 4;
+    this.fillRect(eyeX - 1, wy - 3, eyeX + 2, wy - 1, spotted ? 63 : (hBank + 63));
+  }
+
   renderCrystal3D(cx, baseCy, align, tension, tick) {
     this.rotY = (this.rotY + 1400 + (tension >> 7)) % Q16_TAU;
     const cy = baseCy + ((q16Sin((tick * 2400) % Q16_TAU) * 4) >> 16);
     const r = 22 + (tension >> 12);
     const bank = (align & 3) << 6;
-    const top = { x: cx, y: cy - 28 }, bot = { x: cx, y: cy + 28 };
+    const top = { x: cx, y: cy - 26 }, bot = { x: cx, y: cy + 26 };
     const ring = Array.from({ length: 4 }, (_, i) => {
       const a = this.rotY + i * 102944;
       return { x: cx + ((r * q16Cos(a)) >> 16), y: cy + ((9 * q16Sin(a)) >> 16) };
@@ -165,46 +210,68 @@ export class HorrorFramebuffer {
     }
   }
 
-  drawPoly(pts, c) {
-    for (let i = 1; i < pts.length; i++) {
-      this.drawLine(pts.at(i - 1).x, pts.at(i - 1).y, pts.at(i).x, pts.at(i).y, c);
-      this.drawLine(pts.at(i - 1).x + 1, pts.at(i - 1).y, pts.at(i).x + 1, pts.at(i).y, c - 8);
+  fillRect(x0, y0, x1, y1, c) {
+    for (let y = Math.max(0, y0); y <= Math.min(FB_HEIGHT - 1, y1); y++) {
+      const row = y * FB_WIDTH;
+      for (let x = Math.max(0, x0); x <= Math.min(FB_WIDTH - 1, x1); x++) this.indices[row + x] = c;
     }
   }
 
-  drawRectOutline(x0, y0, x1, y1, c) {
-    this.drawLine(x0, y0, x1, y0, c);
-    this.drawLine(x1, y0, x1, y1, c);
-    this.drawLine(x1, y1, x0, y1, c);
-    this.drawLine(x0, y1, x0, y0, c);
-  }
-
-  drawCircleOutline(cx, cy, r, c, segs = 16) {
-    let px = cx + r, py = cy;
-    for (let i = 1; i <= segs; i++) {
-      const a = ((i * Q16_TAU) / segs) | 0;
-      const nx = cx + ((r * q16Cos(a)) >> 16), ny = cy + ((r * q16Sin(a)) >> 16);
-      this.drawLine(px, py, nx, ny, c);
-      px = nx; py = ny;
-    }
-  }
-
-  drawLine(x0, y0, x1, y1, c) {
-    x0 |= 0; y0 |= 0; x1 |= 0; y1 |= 0;
-    const dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0);
-    const sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
-    let err = dx - dy;
-    while (true) {
-      if (x0 >= 0 && x0 < FB_WIDTH && y0 >= 0 && y0 < FB_HEIGHT) this.indices[y0 * FB_WIDTH + x0] = c;
-      if (x0 === x1 && y0 === y1) break;
-      const e2 = err << 1;
-      if (e2 > -dy) { err -= dy; x0 += sx; }
-      if (e2 < dx) { err += dx; y0 += sy; }
-    }
-  }
-
-  resolveRGBA32() {
-    for (let i = 0; i < this.indices.length; i++) this.rgba32[i] = this.clut[this.indices[i]];
-    return this.rgba32;
-  }
+  fillTri(a, b, c, col) {
+    const minX = q16Clamp(Math.min(a.x, b.x, c.x), 0, FB_WIDTH - 1);
+    const maxX = q16Clamp(Math.max(a.x, b.x, c.x), 0, FB_WIDTH - 1);
+    const minY = q16Clamp(Math.min(a.y, b.y, c.y), 0, FB_HEIGHT - 1);
+    const maxY = q16Clamp(Math.max(a.y, b.y, c.y), 0, FB_HEIGHT - 1);
+    const area = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+    if (area === 0) return;
+    for (let y = minY; y <= maxY; y++) {
+      const row = y * FB_WIDTH;
+      for (let x = minX; x <= maxX; x++) {
+        const w0 = (b.x - a.x) * (y - a.y) - (b.y - a.y) * (x - a.x);
+        const w1 = (c.x - b.x) * (y - b.y) - (c.y - b.y) * (x - b.x);
+        const w2 = (a.x - c.x) * (y - c.y) - (a.y - c.y) * (x - c.x);
+if ((area > 0 && w0 >= 0 && w1 >= 0 && w2 >= 0) || (area < 0 && w0 <= 0 && w1 <= 0 && w2 <= 0)) {
+this.indices[row + x] = col;
+}
+}
+}
+}
+drawPoly(pts, c) {
+for (let i = 1; i < pts.length; i++) {
+this.drawLine(pts.at(i - 1).x, pts.at(i - 1).y, pts.at(i).x, pts.at(i).y, c);
+this.drawLine(pts.at(i - 1).x + 1, pts.at(i - 1).y, pts.at(i).x + 1, pts.at(i).y, c - 8);
+}
+}
+drawRectOutline(x0, y0, x1, y1, c) {
+this.drawLine(x0, y0, x1, y0, c);
+this.drawLine(x1, y0, x1, y1, c);
+this.drawLine(x1, y1, x0, y1, c);
+this.drawLine(x0, y1, x0, y0, c);
+}
+drawCircleOutline(cx, cy, r, c, segs = 16) {
+let px = cx + r, py = cy;
+for (let i = 1; i <= segs; i++) {
+const a = ((i * Q16_TAU) / segs) | 0;
+const nx = cx + ((r * q16Cos(a)) >> 16), ny = cy + ((r * q16Sin(a)) >> 16);
+this.drawLine(px, py, nx, ny, c);
+px = nx; py = ny;
+}
+}
+drawLine(x0, y0, x1, y1, c) {
+x0 |= 0; y0 |= 0; x1 |= 0; y1 |= 0;
+const dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0);
+const sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+let err = dx - dy;
+while (true) {
+if (x0 >= 0 && x0 < FB_WIDTH && y0 >= 0 && y0 < FB_HEIGHT) this.indices[y0 * FB_WIDTH + x0] = c;
+if (x0 === x1 && y0 === y1) break;
+const e2 = err << 1;
+if (e2 > -dy) { err -= dy; x0 += sx; }
+if (e2 < dx) { err += dx; y0 += sy; }
+}
+}
+resolveRGBA32() {
+for (let i = 0; i < this.indices.length; i++) this.rgba32[i] = this.clut[this.indices[i]];
+return this.rgba32;
+}
 }

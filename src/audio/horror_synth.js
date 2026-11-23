@@ -1,86 +1,122 @@
-import { Q16_ONE, Q16_TAU, q16Clamp, q16Sin } from '../core/q16.js';
+import { Q16_ONE, q16Clamp } from '../core/q16.js';
 
-// Haunted D Phrygian Dominant scale frequencies (Hz): D2, Eb2, F#2, G2, A2, Bb2, C3, D3
-const GOTHIC_NOTES = Uint16Array.of(73, 78, 92, 98, 110, 117, 131, 147);
+// D Minor / Phrygian haunting cello & music-box frequencies (Hz)
+const CELLO_PROGRESSION = [73.42, 77.78, 98.00, 65.41]; // D2 -> Eb2 -> G2 -> C2
+const MUSIC_BOX_NOTES = [293.66, 311.13, 440.00, 392.00, 349.23, 311.13, 277.18, 293.66];
 
 export class HorrorAudioEngine {
-  constructor(sampleRate = 22050) {
-    this.sampleRate = sampleRate;
-    this.padPhase1 = 0;
-    this.padPhase2 = 0;
-    this.arpPhase = 0;
-    this.lfoPhase = 0;
-    this.noteTimer = 0;
-    this.noteIdx = 0;
-    this.stingEnv = 0;
-    this.stingFreq = 220;
-    this.stingPhase = 0;
-    this.reverb = new Int32Array(4096);
-    this.revIdx = 0;
+  constructor() {
+    this.ctx = null;
+    this.master = null;
+    this.celloOsc1 = null;
+    this.celloOsc2 = null;
+    this.celloFilter = null;
+    this.stepTimer = null;
+    this.stepIdx = 0;
   }
 
-  triggerSting(hz = 220) {
-    this.stingFreq = hz;
-    this.stingEnv = (this.sampleRate * 0.4) | 0;
-  }
-
-  /** Soft triangle-sine hybrid wave for warm pipe-organ / glass-harmonica tone */
-  _organWave(phase) {
-    const s1 = q16Sin(phase);
-    const s2 = q16Sin((phase << 1) % Q16_TAU) >> 2;
-    return (s1 + s2) >> 1;
-  }
-
-  renderBlock(frameCount, sanityQ16 = Q16_ONE, horrorNear = false) {
-    const out = new Int16Array(frameCount);
-    const loss = Q16_ONE - q16Clamp(sanityQ16, 0, Q16_ONE);
-    const notePeriod = horrorNear ? (this.sampleRate >> 2) : ((this.sampleRate * 0.45) | 0);
-
-    for (let i = 0; i < frameCount; i++) {
-      // Slow haunted vibrato LFO
-      this.lfoPhase = (this.lfoPhase + 18) % Q16_TAU;
-      const vibrato = (q16Sin(this.lfoPhase) * (1 + (loss >> 13))) >> 15;
-
-      // Advance gothic arpeggio note
-      this.noteTimer++;
-      if (this.noteTimer >= notePeriod) {
-        this.noteTimer = 0;
-        this.noteIdx = (this.noteIdx + (horrorNear ? 3 : 1)) % GOTHIC_NOTES.length;
-      }
-
-      const baseHz = GOTHIC_NOTES.at(this.noteIdx);
-      // Detune upward toward tritone as Sanity drops
-      const detune = (baseHz * (loss >> 3)) >> 16;
-      const arpStep = (((baseHz + detune + vibrato) * Q16_TAU) / this.sampleRate) | 0;
-      const padStep1 = (((36 + (vibrato >> 1)) * Q16_TAU) / this.sampleRate) | 0;
-      const padStep2 = (((55 + detune) * Q16_TAU) / this.sampleRate) | 0;
-
-      this.padPhase1 = (this.padPhase1 + padStep1) % Q16_TAU;
-      this.padPhase2 = (this.padPhase2 + padStep2) % Q16_TAU;
-      this.arpPhase = (this.arpPhase + arpStep) % Q16_TAU;
-
-      // Envelope for each plucked music-box / pipe-organ note
-      const env = Math.max(0, 256 - ((this.noteTimer * 256) / notePeriod | 0));
-      let mix =
-        (this._organWave(this.padPhase1) >> 4) +
-        (this._organWave(this.padPhase2) >> 5) +
-        (((this._organWave(this.arpPhase) >> 4) * env) >> 8);
-
-      // Chime/sting feedback on spell cast or item pickup
-      if (this.stingEnv > 0) {
-        this.stingPhase = (this.stingPhase + (((this.stingFreq * Q16_TAU) / this.sampleRate) | 0)) % Q16_TAU;
-        mix += ((q16Sin(this.stingPhase) >> 3) * (this.stingEnv >> 6)) >> 7;
-        this.stingEnv--;
-      }
-
-      // Cathedral echo
-      const echo = this.reverb[this.revIdx];
-      const wet = mix + (echo >> 1) + (echo >> 2);
-      this.reverb[this.revIdx] = q16Clamp(wet, -32768, 32767);
-      this.revIdx = (this.revIdx + 1) & 4095;
-
-      out[i] = q16Clamp(wet >> 1, -32768, 32767);
+  start() {
+    if (this.ctx) {
+      if (this.ctx.state === 'suspended') this.ctx.resume();
+      return this.ctx;
     }
-    return out;
+    const Ctor = window.AudioContext || window.webkitAudioContext;
+    this.ctx = new Ctor();
+
+    this.master = this.ctx.createGain();
+    this.master.gain.value = 0.28;
+
+    // Warm lowpass filter to eliminate all harsh harmonics
+    this.celloFilter = this.ctx.createBiquadFilter();
+    this.celloFilter.type = 'lowpass';
+    this.celloFilter.frequency.value = 340;
+    this.celloFilter.Q.value = 2.5;
+
+    // Cathedral stereo delay feedback
+    const delay = this.ctx.createDelay(1.0);
+    delay.delayTime.value = 0.38;
+    const fbGain = this.ctx.createGain();
+    fbGain.gain.value = 0.42;
+    delay.connect(fbGain);
+    fbGain.connect(delay);
+
+    this.celloFilter.connect(this.master);
+    this.celloFilter.connect(delay);
+    delay.connect(this.master);
+    this.master.connect(this.ctx.destination);
+
+    // Dual bowed cello oscillators (fundamental + detuned fifth/octave warmth)
+    this.celloOsc1 = this.ctx.createOscillator();
+    this.celloOsc1.type = 'sawtooth';
+    this.celloOsc1.frequency.value = 73.42;
+
+    this.celloOsc2 = this.ctx.createOscillator();
+    this.celloOsc2.type = 'triangle';
+    this.celloOsc2.frequency.value = 110.0;
+
+    const celloGain = this.ctx.createGain();
+    celloGain.gain.value = 0.22;
+
+    this.celloOsc1.connect(celloGain);
+    this.celloOsc2.connect(celloGain);
+    celloGain.connect(this.celloFilter);
+
+    this.celloOsc1.start();
+    this.celloOsc2.start();
+
+    // Haunted celesta / music-box arpeggiator
+    this.stepTimer = setInterval(() => this._tickMusicBox(), 520);
+    return this.ctx;
+  }
+
+  _tickMusicBox() {
+    if (!this.ctx || this.ctx.state !== 'running') return;
+    const now = this.ctx.currentTime;
+    const noteHz = MUSIC_BOX_NOTES[this.stepIdx % MUSIC_BOX_NOTES.length];
+    if (this.stepIdx % 4 === 0) {
+      const bassHz = CELLO_PROGRESSION[(this.stepIdx >> 2) % CELLO_PROGRESSION.length];
+      this.celloOsc1.frequency.setTargetAtTime(bassHz, now, 0.18);
+      this.celloOsc2.frequency.setTargetAtTime(bassHz * 1.498, now, 0.18);
+    }
+    this.stepIdx++;
+
+    const osc = this.ctx.createOscillator();
+    const env = this.ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(noteHz, now);
+    env.gain.setValueAtTime(0.001, now);
+    env.gain.exponentialRampToValueAtTime(0.09, now + 0.03);
+    env.gain.exponentialRampToValueAtTime(0.0008, now + 0.85);
+
+    osc.connect(env);
+    env.connect(this.celloFilter);
+    osc.start(now);
+    osc.stop(now + 0.9);
+  }
+
+  updateSanity(sanityQ16 = Q16_ONE, horrorNear = false) {
+    if (!this.ctx || !this.celloFilter) return;
+    const loss = (Q16_ONE - q16Clamp(sanityQ16, 0, Q16_ONE)) / Q16_ONE;
+    const now = this.ctx.currentTime;
+    // Open filter and bend cello pitch into eerie tritone tension when Sanity drops or Watcher is near
+    const cutoff = horrorNear ? 620 : (320 + loss * 380);
+    this.celloFilter.frequency.setTargetAtTime(cutoff, now, 0.15);
+    this.celloOsc2.detune.setTargetAtTime(loss * 65 + (horrorNear ? 35 : 0), now, 0.15);
+  }
+
+  triggerSting(hz = 293.66) {
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const env = this.ctx.createGain();
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(hz, now);
+    osc.frequency.exponentialRampToValueAtTime(hz * 0.749, now + 0.45);
+    env.gain.setValueAtTime(0.16, now);
+    env.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+    osc.connect(env);
+    env.connect(this.master);
+    osc.start(now);
+    osc.stop(now + 0.52);
   }
 }

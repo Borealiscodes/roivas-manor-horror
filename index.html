@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ROIVAS MANOR — Over-the-Shoulder Horror (Q16.16)</title>
+  <title>ROIVAS MANOR — 2.5D Gothic Side-Scroller (Q16.16)</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { background: #030205; color: #d8cce8; font-family: monospace; display: flex; flex-direction: column; align-items: center; padding: 8px; gap: 6px; }
@@ -13,29 +13,31 @@
     canvas { width: 100%; height: 100%; image-rendering: pixelated; display: block; touch-action: none; cursor: crosshair; }
     #sanity-banner { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); background: rgba(160, 0, 20, 0.92); color: #fff; padding: 4px 10px; font-size: 0.75rem; display: none; pointer-events: none; }
     .controls, .sigil-bar { display: flex; flex-wrap: wrap; gap: 5px; justify-content: center; max-width: 720px; }
-    button, select { background: #140b1c; color: #eee2ff; border: 1px solid #4e2a63; padding: 5px 8px; font-family: monospace; font-size: 0.75rem; cursor: pointer; }
+    button, select { background: #140b1c; color: #eee2ff; border: 1px solid #4e2a63; padding: 6px 8px; font-family: monospace; font-size: 0.75rem; cursor: pointer; }
+    button:active { background: #36184a; }
     button.spell-btn { border-color: #9d4edd; color: #e0aaff; }
     #hud { width: 100%; max-width: 720px; background: #09060e; border: 1px solid #261636; padding: 7px 10px; font-size: 0.75rem; line-height: 1.45; white-space: pre-line; }
   </style>
 </head>
 <body>
-  <h1>🕯️ ROIVAS MANOR: OVER-THE-SHOULDER (Q16.16)</h1>
-  <div id="narration-bar">Booting Roivas Archive...</div>
+  <h1>🕯️ ROIVAS MANOR: 2.5D GOTHIC SIDE-SCROLLER</h1>
+  <div id="narration-bar">Booting Manor...</div>
   <div id="viewport-wrap">
     <canvas id="screen" width="480" height="272"></canvas>
     <div id="sanity-banner"></div>
   </div>
   <div class="controls">
-    <button id="fwd-btn">▲ Step Forward</button>
-    <button id="back-btn">▼ Step Back</button>
-    <button id="act-btn">🖐️ Inspect / Door</button>
-    <button id="commit-btn" class="spell-btn">✦ Lock Drawn Rune</button>
-    <button id="cast-btn" class="spell-btn">🔥 Cast Spell</button>
+    <button id="left-btn">◀ Left</button>
+    <button id="jump-btn">▲ Jump</button>
+    <button id="right-btn">Right ▶</button>
+    <button id="act-btn">🖐️ Grab / Door</button>
+    <button id="commit-btn" class="spell-btn">✦ Lock Stroke</button>
+    <button id="cast-btn" class="spell-btn">🔥 Cast</button>
     <button id="clear-btn">↺ Clear</button>
-    <button id="audio-btn">🔊 Gothic Synth</button>
+    <button id="audio-btn">🎻 Cello OST</button>
   </div>
   <div class="sigil-bar">
-    <select id="quick-rune" aria-label="Quick-Inscribe Tome Rune">
+    <select id="quick-rune">
       <option value="ULYAOTH">[Align] Ulyaoth (Blue ◇)</option>
       <option value="CHATTURGHA">[Align] Chattur'gha (Red ∨)</option>
       <option value="XELLOTATH">[Align] Xel'lotath (Green ||)</option>
@@ -47,7 +49,7 @@
       <option value="REDGORMOR">[Noun] Redgormor (Area)</option>
       <option value="ARETAK">[Noun] Aretak (Creature)</option>
       <option value="MAGORMOR">[Noun] Magormor (Item)</option>
-      <option value="PARGON">[Boost] Pargon (1.5x Power ○)</option>
+      <option value="PARGON">[Boost] Pargon (1.5x ○)</option>
     </select>
     <button id="add-sigil-btn" class="spell-btn">➕ Add Tome Rune</button>
   </div>
@@ -70,52 +72,69 @@
     const world = new ManorWorld();
     const recognizer = new DollarPQ16Recognizer();
     const fb = new HorrorFramebuffer();
-    const audio = new HorrorAudioEngine(22050);
+    const audio = new HorrorAudioEngine();
 
     let qAlign = null, qVerb = null, qNoun = null, qPargons = 0;
+    let moveDir = 0;
     let tick = 0;
     narrBar.textContent = world.statusLog;
 
-    let audioCtx = null;
     function unlockAudio() {
-      if (audioCtx) { if (audioCtx.state === 'suspended') audioCtx.resume(); return; }
-      const Ctor = window.AudioContext || window.webkitAudioContext;
-      audioCtx = new Ctor({ sampleRate: 22050 });
-      const node = audioCtx.createScriptProcessor(1024, 0, 1);
-      node.onaudioprocess = (e) => {
-        const out = e.outputBuffer.getChannelData(0);
-        const room = world.rooms[world.currentRoom];
-        const near = Boolean(room.horror && room.horror.alive && Math.abs(room.horror.depth - world.depth) < 35);
-        const pcm = audio.renderBlock(out.length, world.sanityQ16, near);
-        for (let i = 0; i < out.length; i++) out[i] = pcm[i] / 32768;
-      };
-      node.connect(audioCtx.destination);
-      document.getElementById('audio-btn').textContent = '🔊 Synth Active';
+      audio.start();
+      document.getElementById('audio-btn').textContent = '🎻 Cello Active';
     }
     document.getElementById('audio-btn').addEventListener('click', unlockAudio);
+
+    function speak(txt, isOracle = false) {
+      if (!('speechSynthesis' in window)) return;
+      window.speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(txt);
+      const voices = window.speechSynthesis.getVoices();
+      const gbVoice = voices.find((v) => /en[-_]GB/i.test(v.lang));
+      if (gbVoice) u.voice = gbVoice;
+      u.lang = 'en-GB';
+      u.pitch = isOracle ? Math.max(0.3, 1.05 * (world.sanityQ16 / Q16_ONE)) : 0.85;
+      u.rate = isOracle ? 0.8 : 0.95;
+      window.speechSynthesis.speak(u);
+    }
 
     function queueRune(r) {
       if (r === 'CHATTURGHA' || r === 'ULYAOTH' || r === 'XELLOTATH' || r === 'MANTOROK') qAlign = r;
       else if (r === 'ANTORBOK' || r === 'BANKOROK' || r === 'TIER' || r === 'NAROKATH') qVerb = r;
       else if (r === 'REDGORMOR' || r === 'ARETAK' || r === 'MAGORMOR') qNoun = r;
       else if (r === 'PARGON') qPargons++;
-      audio.triggerSting(246);
+      audio.triggerSting(329.63);
     }
 
-    document.getElementById('fwd-btn').addEventListener('click', () => { unlockAudio(); world.stepForward(16); narrBar.textContent = world.statusLog; });
-    document.getElementById('back-btn').addEventListener('click', () => { unlockAudio(); world.stepForward(-16); narrBar.textContent = world.statusLog; });
-    document.getElementById('act-btn').addEventListener('click', () => {
+    document.getElementById('left-btn').addEventListener('pointerdown', () => { moveDir = -1; unlockAudio(); });
+    document.getElementById('right-btn').addEventListener('pointerdown', () => { moveDir = 1; unlockAudio(); });
+    document.getElementById('jump-btn').addEventListener('pointerdown', () => { world.jump(); unlockAudio(); });
+    window.addEventListener('pointerup', () => { moveDir = 0; recognizer.endStroke(); });
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowLeft' || e.key === 'a') moveDir = -1;
+      if (e.key === 'ArrowRight' || e.key === 'd') moveDir = 1;
+      if (e.key === 'ArrowUp' || e.key === 'w' || e.key === ' ') world.jump();
+      if (e.key === 'e' || e.key === 'Enter') doInteract();
+    });
+    window.addEventListener('keyup', (e) => {
+      if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'ArrowRight' || e.key === 'd') moveDir = 0;
+    });
+
+    function doInteract() {
       unlockAudio();
       const res = world.interact();
       narrBar.textContent = world.statusLog;
-      if (res.event === 'UNLOCK' || res.event === 'INSPECT') audio.triggerSting(293);
-    });
+      if (res.event === 'UNLOCK' || res.event === 'INSPECT') audio.triggerSting(440.0);
+      speak(world.statusLog, false);
+    }
+    document.getElementById('act-btn').addEventListener('click', doInteract);
 
     document.getElementById('add-sigil-btn').addEventListener('click', () => {
       unlockAudio();
       const r = document.getElementById('quick-rune').value;
       queueRune(r);
-      narrBar.textContent = 'Added ' + r + ' to ritual circle.';
+      narrBar.textContent = 'Inscribed ' + r + ' into ritual circuit.';
+      speak(r, true);
     });
 
     let drawing = false;
@@ -134,18 +153,20 @@
       const match = recognizer.commitGlyph();
       if (!match || !match.runeId) return;
       queueRune(match.runeId);
-      narrBar.textContent = 'Recognized drawn rune: ' + match.runeId + ' (' + (((match.accuracyQ16 * 100) >> 16)) + '%)';
+      narrBar.textContent = 'Drawn rune: ' + match.runeId + ' (' + (((match.accuracyQ16 * 100) >> 16)) + '%)';
+      speak(match.runeId, true);
     });
 
     document.getElementById('cast-btn').addEventListener('click', () => {
       unlockAudio();
       if (!qAlign || !qVerb || !qNoun) {
-        narrBar.textContent = 'Complete 3-part spell first: [Alignment + Verb + Noun] (e.g., ULYAOTH + BANKOROK + REDGORMOR).';
+        narrBar.textContent = 'Complete 3-part spell first: [Alignment + Verb + Noun].';
         return;
       }
       const res = world.castFullSpell(qAlign, qVerb, qNoun, qPargons);
       narrBar.textContent = world.statusLog;
-      audio.triggerSting(res.outcome === 'BACKFIRE' ? 110 : 330);
+      audio.triggerSting(res.outcome === 'BACKFIRE' ? 138.59 : 440.0);
+      speak(world.statusLog, res.outcome === 'BACKFIRE');
       qAlign = null; qVerb = null; qNoun = null; qPargons = 0;
     });
 
@@ -157,12 +178,13 @@
 
     function frame() {
       tick++;
-      const state = world.step(tick);
-      fb.renderScene(world, recognizer.strokes, recognizer.current, tick);
+      const state = world.step(moveDir, tick);
+      audio.updateSanity(state.sanityQ16, state.spotted);
+      fb.renderScene(world, recognizer.strokes, recognizer.current, tick, state.spotted);
 
       if (state.sanityQ16 < 26000 && ((tick >> 5) & 1) === 0) {
         sanityBanner.style.display = 'block';
-        sanityBanner.textContent = 'SANITY CRITICAL — REALITY DISTORTING';
+        sanityBanner.textContent = 'SANITY CRITICAL — HIDE IN THE SHADOW ALCOVES';
         canvas.style.transform = 'rotate(' + (((tick >> 3) % 5) - 2) + 'deg)';
       } else {
         sanityBanner.style.display = 'none';
@@ -174,9 +196,10 @@
 
       const room = world.rooms[world.currentRoom];
       const inv = Array.from(world.inventory).join(', ') || 'None';
+      const stealth = world.player.hidden ? ' [HIDDEN IN SHADOW]' : (state.spotted ? ' [SPOTTED!]' : '');
       hud.textContent =
-        'Location: ' + room.name + ' (Depth ' + world.depth + '/100) | Sanity: ' + ((state.sanityQ16 * 100) >> 16) + '%\n' +
-        'Circuit: [' + (qAlign || 'Align?') + ' + ' + (qVerb || 'Verb?') + ' + ' + (qNoun || 'Noun?') + (qPargons ? ' + ' + qPargons + 'x PARGON' : '') + '] | Inventory: ' + inv;
+        'Room: ' + room.name + stealth + ' | Sanity: ' + ((state.sanityQ16 * 100) >> 16) + '%\n' +
+        'Circuit: [' + (qAlign || 'Align?') + ' + ' + (qVerb || 'Verb?') + ' + ' + (qNoun || 'Noun?') + (qPargons ? ' + ' + qPargons + 'x PARGON' : '') + '] | Relics: ' + inv;
       requestAnimationFrame(frame);
     }
     requestAnimationFrame(frame);
