@@ -64,7 +64,6 @@ export class HorrorFramebuffer {
       }
     }
 
-    // Floor & Gothic Lancet Windows
     this.drawLine(0, 218, FB_WIDTH - 1, 218, bank + 34);
     for (const wx of Array.of(95, 240, 385)) {
       this.drawLine(wx - 22, 165, wx - 22, 54, bank + 22);
@@ -74,7 +73,6 @@ export class HorrorFramebuffer {
       this.drawLine(wx - 24, 165, wx + 24, 165, bank + 24);
     }
 
-    // Stealth Shadow Alcoves
     for (const sh of room.shadows) {
       for (let y = 148; y < 218; y++) {
         const row = y * FB_WIDTH;
@@ -83,7 +81,6 @@ export class HorrorFramebuffer {
       this.drawRectOutline(sh.x, 148, sh.x + sh.w, 218, bank + 18);
     }
 
-    // Ledges & Pushable Crate
     for (const plat of room.platforms) {
       this.fillRect(plat.x, plat.y, plat.x + plat.w, plat.y + plat.h, bank + 28);
       this.drawRectOutline(plat.x, plat.y, plat.x + plat.w, plat.y + plat.h, bank + 48);
@@ -95,7 +92,6 @@ export class HorrorFramebuffer {
       this.drawLine(c.x, c.y, c.x + c.w, c.y + c.h, bank + 44);
     }
 
-    // Doorways
     if (room.backRoom) this.drawRectOutline(22, 142, 56, 218, bank + 36);
     if (room.nextRoom) {
       const locked = room.gateId && !world.unsealedGates.has(room.gateId);
@@ -108,17 +104,13 @@ export class HorrorFramebuffer {
       }
     }
 
-    // Distinct Gothic Prop Silhouettes (Books, Keys, Portraits, Gladius, Scrolls)
     for (const prop of room.props) {
       const taken = prop.item && prop.item !== 'ALTAR' && world.inventory.has(prop.item);
       if (taken) continue;
       this.drawCustomProp(prop, bank, tick);
     }
 
-    || world.dirichletTensionQ16 > 24000) {
-      this.renderCrystal3D(240, 72, world.activeSpellAlign, world.dirichletTensionQ16, tick);
-    }
-
+    this.renderCrystal3D(240, 72, world.activeSpellAlign, world.dirichletTensionQ16, tick);
     this.drawInvestigator(p, bank, tick);
 
     if (room.watcher && room.watcher.alive) {
@@ -138,8 +130,6 @@ export class HorrorFramebuffer {
       }
     }
   }
-
-  /** Render distinct gothic artifact silhouettes instead of generic boxes/circles */
   drawCustomProp(prop, bank, tick) {
     const x = prop.x | 0;
     const bob = ((q16Sin((tick * 3200) % Q16_TAU) * 2) >> 16);
@@ -148,13 +138,11 @@ export class HorrorFramebuffer {
     const mid = bank + 46;
 
     if (prop.id === 'KEY_PROP') {
-      // Ornate Brass Key: circular bow + shaft + ward teeth
       this.drawCircleOutline(x - 6, y, 4, hi, 12);
       this.drawLine(x - 2, y, x + 9, y, hi);
       this.drawLine(x + 5, y, x + 5, y + 4, hi);
       this.drawLine(x + 8, y, x + 8, y + 5, hi);
     } else if (prop.id === 'JOURNAL_PROP' || prop.id === 'ECHO_PROP') {
-      // Open Leather Tome with curved twin pages
       this.drawLine(x - 10, y + 4, x, y + 6, hi);
       this.drawLine(x, y + 6, x + 10, y + 4, hi);
       this.drawLine(x - 10, y - 4, x, y - 2, hi);
@@ -163,23 +151,19 @@ export class HorrorFramebuffer {
       this.drawLine(x + 10, y - 4, x + 10, y + 4, mid);
       this.drawLine(x, y - 2, x, y + 6, mid);
     } else if (prop.id === 'PORTRAIT_PROP') {
-      // Gilded Gothic Portrait Frame + silhouette bust
       this.drawRectOutline(x - 9, y - 13, x + 9, y + 7, mid);
       this.drawCircleOutline(x, y - 5, 3, hi, 10);
       this.drawLine(x - 5, y + 5, x + 5, y + 5, hi);
     } else if (prop.id === 'GLADIUS_PROP') {
-      // Roman Gladius Sword: pommel, crossguard & tapered blade
       this.drawLine(x, y - 12, x, y + 8, hi);
       this.drawLine(x - 5, y + 3, x + 5, y + 3, hi);
       this.drawLine(x - 2, y + 8, x + 2, y + 8, mid);
     } else if (prop.id === 'TOME_PAGE_PROP' || prop.id === 'NOTE_PROP') {
-      // Torn Vellum Scroll
       this.drawRectOutline(x - 7, y - 8, x + 7, y + 6, hi);
       this.drawLine(x - 4, y - 4, x + 4, y - 4, mid);
       this.drawLine(x - 4, y - 1, x + 3, y - 1, mid);
       this.drawLine(x - 4, y + 2, x + 4, y + 2, mid);
     } else {
-      // Stone Pedestal Altar
       this.fillRect(x - 12, y - 4, x + 12, y + 18, bank + 26);
       this.drawRectOutline(x - 12, y - 4, x + 12, y + 18, hi);
     }
@@ -232,76 +216,83 @@ export class HorrorFramebuffer {
     const top = { x: cx, y: cy - 26 }, bot = { x: cx, y: cy + 26 };
     const ring = Array.from({ length: 4 }, (_, i) => {
       const a = this.rotY + i * 102944;
-return { x: cx + ((r * q16Cos(a)) >> 16), y: cy + ((9 * q16Sin(a)) >> 16) };
-});
-for (let i = 0; i < 4; i++) {
-const p0 = (i), p1 = ring.at((i + 1) & 3);
-this.drawLine(top.x, top.y, p0.x, p0.y, bank + 62);
-this.drawLine(bot.x, bot.y, p0.x, p0.y, bank + 54);
-this.drawLine(p0.x, p0.y, p1.x, p1.y, bank + 63);
-}
-}
-fillRect(x0, y0, x1, y1, c) {
-for (let y = Math.max(0, y0); y <= Math.min(FB_HEIGHT - 1, y1); y++) {
-const row = y * FB_WIDTH;
-for (let x = Math.max(0, x0); x <= Math.min(FB_WIDTH - 1, x1); x++) this.indices[row + x] = c;
-}
-}
-fillTri(a, b, c, col) {
-const minX = q16Clamp(Math.min(a.x, b.x, c.x), 0, FB_WIDTH - 1);
-const maxX = q16Clamp(Math.max(a.x, b.x, c.x), 0, FB_WIDTH - 1);
-const minY = q16Clamp(Math.min(a.y, b.y, c.y), 0, FB_HEIGHT - 1);
-const maxY = q16Clamp(Math.max(a.y, b.y, c.y), 0, FB_HEIGHT - 1);
-const area = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
-if (area === 0) return;
-for (let y = minY; y <= maxY; y++) {
-const row = y * FB_WIDTH;
-for (let x = minX; x <= maxX; x++) {
-const w0 = (b.x - a.x) * (y - a.y) - (b.y - a.y) * (x - a.x);
-const w1 = (c.x - b.x) * (y - b.y) - (c.y - b.y) * (x - b.x);
-const w2 = (a.x - c.x) * (y - c.y) - (a.y - c.y) * (x - c.x);
-if ((area > 0 && w0 >= 0 && w1 >= 0 && w2 >= 0) || (area < 0 && w0 <= 0 && w1 <= 0 && w2 <= 0)) {
-this.indices[row + x] = col;
-}
-}
-}
-}
-drawPoly(pts, c) {
-for (let i = 1; i < pts.length; i++) {
-this.drawLine((i - 1).x, (i - 1).y, pts.at(i).x, pts.at(i).y, c);
-this.drawLine(pts.at(i - 1).x + 1, pts.at(i - 1).y, pts.at(i).x + 1, pts.at(i).y, c - 8);
-}
-}
-drawRectOutline(x0, y0, x1, y1, c) {
-this.drawLine(x0, y0, x1, y0, c);
-this.drawLine(x1, y0, x1, y1, c);
-this.drawLine(x1, y1, x0, y1, c);
-this.drawLine(x0, y1, x0, y0, c);
-}
-drawCircleOutline(cx, cy, r, c, segs = 16) {
-let px = cx + r, py = cy;
-for (let i = 1; i <= segs; i++) {
-const a = ((i * Q16_TAU) / segs) | 0;
-const nx = cx + ((r * q16Cos(a)) >> 16), ny = cy + ((r * q16Sin(a)) >> 16);
-this.drawLine(px, py, nx, ny, c);
-px = nx; py = ny;
-}
-}
-drawLine(x0, y0, x1, y1, c) {
-x0 |= 0; y0 |= 0; x1 |= 0; y1 |= 0;
-const dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0);
-const sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
-let err = dx - dy;
-while (true) {
-if (x0 >= 0 && x0 < FB_WIDTH && y0 >= 0 && y0 < FB_HEIGHT) this.indices[y0 * FB_WIDTH + x0] = c;
-if (x0 === x1 && y0 === y1) break;
-const e2 = err << 1;
-if (e2 > -dy) { err -= dy; x0 += sx; }
-if (e2 < dx) { err += dx; y0 += sy; }
-}
-}
-resolveRGBA32() {
-for (let i = 0; i < this.indices.length; i++) this.rgba32[i] = this.clut[this.indices[i]];
-return this.rgba32;
-}
+      return { x: cx + ((r * q16Cos(a)) >> 16), y: cy + ((9 * q16Sin(a)) >> 16) };
+    });
+    for (let i = 0; i < 4; i++) {
+      const p0 = ring.at(i), p1 = ring.at((i + 1) & 3);
+      this.drawLine(top.x, top.y, p0.x, p0.y, bank + 62);
+      this.drawLine(bot.x, bot.y, p0.x, p0.y, bank + 54);
+      this.drawLine(p0.x, p0.y, p1.x, p1.y, bank + 63);
+    }
+  }
+
+  fillRect(x0, y0, x1, y1, c) {
+    for (let y = Math.max(0, y0); y <= Math.min(FB_HEIGHT - 1, y1); y++) {
+      const row = y * FB_WIDTH;
+      for (let x = Math.max(0, x0); x <= Math.min(FB_WIDTH - 1, x1); x++) this.indices[row + x] = c;
+    }
+  }
+
+  fillTri(a, b, c, col) {
+    const minX = q16Clamp(Math.min(a.x, b.x, c.x), 0, FB_WIDTH - 1);
+    const maxX = q16Clamp(Math.max(a.x, b.x, c.x), 0, FB_WIDTH - 1);
+    const minY = q16Clamp(Math.min(a.y, b.y, c.y), 0, FB_HEIGHT - 1);
+    const maxY = q16Clamp(Math.max(a.y, b.y, c.y), 0, FB_HEIGHT - 1);
+    const area = (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+    if (area === 0) return;
+    for (let y = minY; y <= maxY; y++) {
+      const row = y * FB_WIDTH;
+      for (let x = minX; x <= maxX; x++) {
+        const w0 = (b.x - a.x) * (y - a.y) - (b.y - a.y) * (x - a.x);
+        const w1 = (c.x - b.x) * (y - b.y) - (c.y - b.y) * (x - b.x);
+        const w2 = (a.x - c.x) * (y - c.y) - (a.y - c.y) * (x - c.x);
+        if ((area > 0 && w0 >= 0 && w1 >= 0 && w2 >= 0) || (area < 0 && w0 <= 0 && w1 <= 0 && w2 <= 0)) {
+          this.indices[row + x] = col;
+        }
+      }
+    }
+  }
+
+  drawPoly(pts, c) {
+    for (let i = 1; i < pts.length; i++) {
+      this.drawLine(pts.at(i - 1).x, pts.at(i - 1).y, pts.at(i).x, pts.at(i).y, c);
+      this.drawLine(pts.at(i - 1).x + 1, pts.at(i - 1).y, pts.at(i).x + 1, pts.at(i).y, c - 8);
+    }
+  }
+
+  drawRectOutline(x0, y0, x1, y1, c) {
+    this.drawLine(x0, y0, x1, y0, c);
+    this.drawLine(x1, y0, x1, y1, c);
+    this.drawLine(x1, y1, x0, y1, c);
+    this.drawLine(x0, y1, x0, y0, c);
+  }
+
+  drawCircleOutline(cx, cy, r, c, segs = 16) {
+    let px = cx + r, py = cy;
+    for (let i = 1; i <= segs; i++) {
+      const a = ((i * Q16_TAU) / segs) | 0;
+      const nx = cx + ((r * q16Cos(a)) >> 16), ny = cy + ((r * q16Sin(a)) >> 16);
+      this.drawLine(px, py, nx, ny, c);
+      px = nx; py = ny;
+    }
+  }
+
+  drawLine(x0, y0, x1, y1, c) {
+    x0 |= 0; y0 |= 0; x1 |= 0; y1 |= 0;
+    const dx = Math.abs(x1 - x0), dy = Math.abs(y1 - y0);
+    const sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+    let err = dx - dy;
+    while (true) {
+      if (x0 >= 0 && x0 < FB_WIDTH && y0 >= 0 && y0 < FB_HEIGHT) this.indices[y0 * FB_WIDTH + x0] = c;
+      if (x0 === x1 && y0 === y1) break;
+      const e2 = err << 1;
+      if (e2 > -dy) { err -= dy; x0 += sx; }
+      if (e2 < dx) { err += dx; y0 += sy; }
+    }
+  }
+
+  resolveRGBA32() {
+    for (let i = 0; i < this.indices.length; i++) this.rgba32[i] = this.clut[this.indices[i]];
+    return this.rgba32;
+  }
 }
