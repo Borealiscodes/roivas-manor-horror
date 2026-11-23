@@ -143,7 +143,7 @@
       speak(r, true);
     });
 
-    let drawing = false;
+    let drawing = false; let autoCommitTimer = null;
     function getPt(e) {
       const rect = canvas.getBoundingClientRect();
       return {
@@ -151,9 +151,9 @@
         y: q16Clamp((((e.clientY - rect.top) / rect.height) * FB_HEIGHT) | 0, 0, FB_HEIGHT - 1)
       };
     }
-    canvas.addEventListener('pointerdown', (e) => { unlockAudio(); drawing = true; const p = getPt(e); recognizer.beginStroke(p.x, p.y); });
+    canvas.addEventListener('pointerdown', (e) => { unlockAudio(); drawing = true; const p = getPt(e); if (autoCommitTimer) clearTimeout(autoCommitTimer); recognizer.beginStroke(p.x, p.y); });
     canvas.addEventListener('pointermove', (e) => { if (!drawing) return; const p = getPt(e); recognizer.addPoint(p.x, p.y); });
-    window.addEventListener('pointerup', () => { if (drawing) { drawing = false; recognizer.endStroke(); } });
+    window.addEventListener('pointerup', () => { if (drawing) { drawing = false; recognizer.endStroke(); autoCommitTimer = setTimeout(() => document.getElementById('commit-btn').click(), 550); } });
 
     document.getElementById('commit-btn').addEventListener('click', () => {
       const match = recognizer.commitGlyph();

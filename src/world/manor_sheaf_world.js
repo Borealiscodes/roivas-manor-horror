@@ -1,4 +1,4 @@
-import { Q16_ONE, Q16_HALF, q16Mul, q16Clamp } from '../core/q16.js';
+import { Q16_ONE, q16Clamp } from '../core/q16.js';
 
 export const ALIGN = { CHATTURGHA: 0, ULYAOTH: 1, XELLOTATH: 2, MANTOROK: 3 };
 
@@ -13,7 +13,6 @@ export function countersAlignment(spellAlign, horrorAlign) {
 export class ManorWorld {
   constructor() {
     this.currentRoom = 'FOYER';
-    // Sub-pixel Q16.16 kinematics for silky smooth Little Nightmares jump arcs
     this.player = {
       x: 62, y: 186,
       xQ16: 62 << 16, yQ16: 186 << 16,
@@ -21,23 +20,23 @@ export class ManorWorld {
       grounded: true, coyoteFrames: 0, facing: 1, hidden: false, moving: false
     };
     this.sanityQ16 = Q16_ONE;
-    this.dirichletTensionQ16 = 0;
+    this.dirichletTensionQ16 = 8192;
     this.inventory = new Set();
     this.unsealedGates = new Set();
     this.activeSpellAlign = ALIGN.ULYAOTH;
     this.journal = Array.of(
-      'I. Threshold of Dust (Oct 2026): The front doors did not lock behind me; the oak frame simply forgot it ever possessed hinges. This house does not shelter space—it hoards memory like scar tissue.'
+      'I. October 14, 2026: My great-aunt Alexandra left me the Rhode Island estate on one condition—that I spend a single night inside before the lawyers unseal her vault.'
     );
-    this.statusLog = 'THE BREATHING FOYER: Rain needles the lancet glass. Ascend the grandfather clockwork ledges to claim the Brass Key, then weave Ulyaoth + Bankorok + Redgormor against the weeping flesh barrier.';
+    this.statusLog = 'THE FOYER: The front deadbolt snapped shut on its own. Climb the clock shelves for the Brass Key, and cast Ulyaoth + Bankorok + Redgormor to clear the East Arch.';
 
     this.rooms = {
       FOYER: {
-        name: 'I. The Breathing Foyer',
+        name: 'I. The Cold Foyer',
         ambienceAlign: ALIGN.ULYAOTH,
         backRoom: null,
         nextRoom: 'GALLERY',
         gateId: 'FOYER_FLESH_DOOR',
-        gateHint: 'Sinew and calcified cartilage knit the East Arch shut. Cast ULYAOTH + BANKOROK + REDGORMOR to unmake the flesh.',
+        gateHint: 'A pulsing Crimson Seal covers the East Arch. Cast ULYAOTH (Blue) + BANKOROK (Ward) + REDGORMOR (Area) to dissolve it.',
         platforms: Array.of(
           { x: 145, y: 178, w: 84, h: 9 },
           { x: 248, y: 148, w: 92, h: 9 }
@@ -46,25 +45,25 @@ export class ManorWorld {
         shadows: Array.of({ x: 356, w: 46 }),
         props: Array.of(
           {
-            id: 'JOURNAL_PROP', x: 182, y: 166, name: 'Alexandra\'s Vellum Ledger', item: null,
-            journalEntry: 'II. The Architecture of Appetite: Aunt Alexandra wrote that consciousness is merely a shallow tide lapping against cold geometry. Four ancient predicates pull at the floorboards.',
-            text: 'ALEXANDRA\'S LEDGER: "Consciousness is a frail lantern held over an abyss of indifferent geometry. Cast Ulyaoth + Bankorok + Redgormor to part the crimson tissue."'
+            id: 'JOURNAL_PROP', x: 182, y: 166, name: 'Alexandra\'s Notebook', item: null,
+            journalEntry: 'II. The First Warning: Alexandra\'s notebook lies open on the shelf. "If the red barrier returns on the East Door, answer it with Blue Ulyaoth, Bankorok, and Redgormor."',
+            text: 'ALEXANDRA\'S NOTE: "If the red barrier seals the East Door again, answer it with Blue Ulyaoth, Bankorok, and Redgormor."'
           },
           {
             id: 'KEY_PROP', x: 294, y: 136, name: 'Tarnished Brass Key', item: 'BRASS_KEY',
-            journalEntry: 'III. The Stopped Pendulum: Within the clock\'s throat lay a Brass Key—warm to the touch, as though someone had been clenching it seconds before I arrived.',
-            text: 'Recovered the TARNISHED BRASS KEY from the upper clockwork shelf!'
+            journalEntry: 'III. Inside the Clock: Found the tarnished Brass Key resting beside a pendulum frozen at 1:00 AM.',
+            text: 'Picked up the TARNISHED BRASS KEY from the upper clock ledge!'
           }
         ),
         watcher: null
       },
       GALLERY: {
-        name: 'II. Gallery of Weeping Portraits',
+        name: 'II. The Portrait Gallery',
         ambienceAlign: ALIGN.CHATTURGHA,
         backRoom: 'FOYER',
         nextRoom: 'LIBRARY',
         gateId: 'LIBRARY_OAK_DOOR',
-        gateHint: 'The iron-banded Oak Door refuses to yield. Press [Grab / Door] at the threshold with the BRASS KEY.',
+        gateHint: 'The heavy Oak Library Door is locked. Press [Grab / Door] at the door with the BRASS KEY.',
         platforms: Array.of(
           { x: 132, y: 176, w: 92, h: 9 },
           { x: 262, y: 150, w: 94, h: 9 }
@@ -73,25 +72,25 @@ export class ManorWorld {
         shadows: Array.of({ x: 152, w: 54 }, { x: 304, w: 54 }),
         props: Array.of(
           {
-            id: 'PORTRAIT_PROP', x: 172, y: 164, name: 'Maximilian\'s Oil Portrait', item: null,
-            journalEntry: 'IV. Maximilian\'s Delirium (1760): His painted pupils dilate as my lantern passes. "Sentience is a fever dream in a yawning cavern; Green Xel\'lotath drinks doubt until the mind hollows out."',
-            text: 'WHISPER FROM THE CANVAS: "Sentience is a brief fever in a yawning cavern of bone. Hide in the velvet alcoves, or sear Green Xel\'lotath with Red Chattur\'gha!"'
+            id: 'PORTRAIT_PROP', x: 172, y: 164, name: 'Maximilian\'s Portrait', item: null,
+            journalEntry: 'IV. The 1760 Portrait: Scratched into the frame of Dr. Maximilian Roivas: "Step into the dark curtain alcoves when the Green Watcher turns its lamp toward you."',
+            text: 'CARVED INTO THE FRAME: "Step into the dark curtain alcoves when the Watcher turns its gaze, or strike Green with Red Chattur\'gha!"'
           },
           {
-            id: 'TOME_PAGE_PROP', x: 308, y: 138, name: 'Torn Skin-Vellum Page', item: 'TOME_PAGE',
-            journalEntry: 'V. The Tri-Fold Predation: Flesh devours Thought; Thought unravels Plane; Plane starves Flesh. None are sovereign—only bound in mutual hunger.',
-            text: 'Claimed the TORN TOME PAGE from the upper reliquary ledge!'
+            id: 'TOME_PAGE_PROP', x: 308, y: 138, name: 'Torn Ledger Page', item: 'TOME_PAGE',
+            journalEntry: 'V. The Three-Way Rule: Red beats Green; Green beats Blue; Blue beats Red. Purple Mantorok binds all three.',
+            text: 'Found the TORN LEDGER PAGE detailing the three-color counter cycle!'
           }
         ),
-        watcher: { alive: true, x: 375, dir: -1, minX: 110, maxX: 410, align: ALIGN.XELLOTATH, name: 'Xel\'lotath Thought-Leach', hp: 1 }
+        watcher: { alive: true, x: 375, dir: -1, minX: 110, maxX: 410, align: ALIGN.XELLOTATH, name: 'Gallery Watcher (Green)', hp: 1 }
       },
       LIBRARY: {
-        name: 'III. The Sunken Archive',
+        name: 'III. The East Library',
         ambienceAlign: ALIGN.XELLOTATH,
         backRoom: 'GALLERY',
         nextRoom: 'OBSERVATORY',
         gateId: 'OBSERVATORY_SEAL',
-        gateHint: 'A shimmering Emerald Phantasm occludes the cellar stair! Cast CHATTURGHA + ANTORBOK + ARETAK.',
+        gateHint: 'An Emerald Ward blocks the cellar stairs! Cast CHATTURGHA (Red) + ANTORBOK (Attack) + ARETAK (Creature).',
         platforms: Array.of(
           { x: 105, y: 178, w: 80, h: 9 },
           { x: 208, y: 150, w: 86, h: 9 },
@@ -101,20 +100,20 @@ export class ManorWorld {
         shadows: Array.of({ x: 226, w: 50 }),
         props: Array.of(
           {
-            id: 'NOTE_PROP', x: 142, y: 166, name: 'Edward\'s Autopsy Folio', item: null,
-            journalEntry: 'VI. Edward\'s Dissection (1952): Grandfather Edward measured the cellar walls and found the interior wider than the exterior by four inches—a topological cyst growing around a sunken crystal.',
-            text: 'EDWARD\'S FOLIO: "The manor\'s interior exceeds its exterior by four inches—a topological cyst feeding on our lineage. Only violet Mantorok can suture the wound."'
+            id: 'NOTE_PROP', x: 142, y: 166, name: 'Edward\'s Letter', item: null,
+            journalEntry: 'VI. Grandfather Edward\'s Letter (1952): "We never built a cellar under the East Wing—yet the stone stair leads down to a suspended crystal chamber."',
+            text: 'EDWARD\'S LETTER (1952): "We never dug a cellar under the East Wing, yet the stair descends to a suspended crystal chamber."'
           },
           {
-            id: 'GLADIUS_PROP', x: 250, y: 138, name: 'Enchanted Gladius', item: 'GLADIUS_RELIC',
-            journalEntry: 'VII. The Bronze Gladius: Balanced for a Roman centurion, yet cold as deep ocean basalt. It hums when pointed toward the cellar.',
-            text: 'Lifted Alexandra\'s ENCHANTED GLADIUS from the obsidian lectern!'
+            id: 'GLADIUS_PROP', x: 250, y: 138, name: 'Bronze Gladius', item: 'GLADIUS_RELIC',
+            journalEntry: 'VII. The Bronze Gladius: Taken from the study lectern. Its cold blade steadies my hands in the dark.',
+            text: 'Claimed Alexandra\'s BRONZE GLADIUS from the upper study catwalk!'
           }
         ),
-        watcher: { alive: true, x: 355, dir: -1, minX: 115, maxX: 405, align: ALIGN.ULYAOTH, name: 'Ulyaoth Plane-Warden', hp: 1 }
+        watcher: { alive: true, x: 355, dir: -1, minX: 115, maxX: 405, align: ALIGN.ULYAOTH, name: 'Archive Warden (Blue)', hp: 1 }
       },
       OBSERVATORY: {
-        name: 'IV. Heart of the Octahedron',
+        name: 'IV. The Sub-Basement Vault',
         ambienceAlign: ALIGN.MANTOROK,
         backRoom: 'LIBRARY',
         nextRoom: null,
@@ -128,24 +127,23 @@ export class ManorWorld {
         shadows: Array.of({ x: 85, w: 46 }, { x: 348, w: 46 }),
         props: Array.of(
           {
-            id: 'ECHO_PROP', x: 155, y: 162, name: 'Alexandra\'s Echo', item: null,
-            journalEntry: 'VIII. The Corpse-God\'s Equilibrium: "Speak the binding—Mantorok, Bankorok, Redgormor, amplified by Pargon—so the angles cease their feeding."',
-            text: 'ALEXANDRA\'S ECHO: "Speak the binding—MANTOROK + BANKOROK + REDGORMOR + PARGON—before our bloodline becomes mortar!"'
+            id: 'ECHO_PROP', x: 155, y: 162, name: 'Alexandra\'s Final Note', item: null,
+            journalEntry: 'VIII. The Vault Seal: "Evelyn, cast Purple Mantorok + Bankorok + Redgormor + Pargon to lock the crystal and walk out before dawn."',
+            text: 'ALEXANDRA\'S FINAL NOTE: "Cast MANTOROK + BANKOROK + REDGORMOR + PARGON to lock the crystal and walk out before dawn."'
           },
           {
-            id: 'ALTAR_PROP', x: 240, y: 198, name: 'The 3D Octahedron', item: 'ALTAR',
+            id: 'ALTAR_PROP', x: 240, y: 198, name: 'The Floating Octahedron', item: 'ALTAR',
             journalEntry: null,
-            text: 'Eight rotating facets refract centuries of Roivas grief. Cast MANTOROK + BANKOROK + REDGORMOR + PARGON!'
+            text: 'The 3D Crystal hums above the stone altar. Cast MANTOROK + BANKOROK + REDGORMOR + PARGON to seal it!'
           }
         ),
-        watcher: { alive: true, x: 340, dir: -1, minX: 110, maxX: 395, align: ALIGN.CHATTURGHA, name: 'Manor Flesh-Avatar', hp: 2 }
+        watcher: { alive: true, x: 340, dir: -1, minX: 110, maxX: 395, align: ALIGN.CHATTURGHA, name: 'Vault Guardian (Red)', hp: 2 }
       }
     };
   }
 
   jump() {
     if (this.player.grounded || this.player.coyoteFrames > 0) {
-      // Smooth -4.15 px/frame impulse in Q16.16 (~43px arc height, zero jitter)
       this.player.vyQ16 = -272000;
       this.player.grounded = false;
       this.player.coyoteFrames = 0;
@@ -179,20 +177,20 @@ export class ManorWorld {
       if (!gate || this.unsealedGates.has(gate)) {
         this.currentRoom = room.nextRoom;
         p.x = 68; p.y = 186; p.xQ16 = 68 << 16; p.yQ16 = 186 << 16;
-        this.statusLog = 'Crossed the threshold into ' + this.rooms[this.currentRoom].name + '.';
+        this.statusLog = 'Entered ' + this.rooms[this.currentRoom].name + '.';
         return { event: 'DOOR' };
       }
       if (gate === 'LIBRARY_OAK_DOOR' && this.inventory.has('BRASS_KEY')) {
         this.unsealedGates.add(gate);
-        this.statusLog = 'The Brass Key turns inside the rusted tumblers. Press [Grab / Door] again to enter.';
+        this.statusLog = 'Unlocked the Oak Door with the Brass Key! Press [Grab / Door] again to enter.';
         return { event: 'UNLOCK' };
       }
       this.dirichletTensionQ16 = q16Clamp(this.dirichletTensionQ16 + 10000, 0, Q16_ONE);
-      this.statusLog = 'THRESHOLD SEALED: ' + room.gateHint;
+      this.statusLog = 'LOCKED: ' + room.gateHint;
       return { event: 'BLOCKED' };
     }
 
-    this.statusLog = 'Only cold drafts stir here. Ascend the ledges or approach portraits and doors.';
+    this.statusLog = 'Nothing within reach. Jump onto shelves or approach notes and doors.';
     return { event: 'NONE' };
   }
 
@@ -202,56 +200,57 @@ export class ManorWorld {
     this.activeSpellAlign = spellAlign;
     const room = this.rooms[this.currentRoom];
 
-if (room.gateId === 'FOYER_FLESH_DOOR' && spellAlign === ALIGN.ULYAOTH && verbId === 'BANKOROK' && nounId === 'REDGORMOR') {
-this.unsealedGates.add('FOYER_FLESH_DOOR');
-this.dirichletTensionQ16 = 0;
-this.statusLog = 'Ulyaoth\'s cobalt geometry unravels the weeping sinew! Walk right to enter the Gallery.';
-return { outcome: 'UNSEALED' };
-}
-if (room.gateId === 'OBSERVATORY_SEAL' && spellAlign === ALIGN.CHATTURGHA && verbId === 'ANTORBOK') {
-this.unsealedGates.add('OBSERVATORY_SEAL');
-this.dirichletTensionQ16 = 0;
-this.statusLog = 'Chattur\'gha\'s crimson lance pierces the Emerald Phantasm! The Observatory stairs lie open.';
+    if (room.gateId === 'FOYER_FLESH_DOOR' && spellAlign === ALIGN.ULYAOTH && verbId === 'BANKOROK' && nounId === 'REDGORMOR') {
+      this.unsealedGates.add('FOYER_FLESH_DOOR');
+      this.dirichletTensionQ16 = 4096;
+      this.statusLog = 'Blue Ulyaoth dissolves the Crimson Seal! Walk right to enter the Portrait Gallery.';
+      return { outcome: 'UNSEALED' };
+    }
+
+    if (room.gateId === 'OBSERVATORY_SEAL' && spellAlign === ALIGN.CHATTURGHA && verbId === 'ANTORBOK') {
+      this.unsealedGates.add('OBSERVATORY_SEAL');
+      this.dirichletTensionQ16 = 4096;
+
+this.statusLog = 'Red Chattur'gha shatters the Emerald Ward! The cellar stairs are open.';
 return { outcome: 'UNSEALED' };
 }
 if (this.currentRoom === 'OBSERVATORY' && spellAlign === ALIGN.MANTOROK && verbId === 'BANKOROK' && nounId === 'REDGORMOR' && pargonCount >= 1) {
 if (room.watcher) room.watcher.alive = false;
 this.dirichletTensionQ16 = 0;
 this.sanityQ16 = Q16_ONE;
-this.statusLog = 'ENDING SEALED: Mantorok\'s amplified binding locks the 3D Crystal. Roivas Manor exhales its last stolen breath.';
+this.statusLog = 'VAULT SEALED: Purple Mantorok locks the 3D Crystal. The front doors unbolt—you survived the night!';
 return { outcome: 'VICTORY' };
 }
 if (room.watcher && room.watcher.alive && verbId === 'ANTORBOK') {
 if (countersAlignment(spellAlign, room.watcher.align)) {
 room.watcher.hp -= (1 + pargonCount);
-this.dirichletTensionQ16 = Math.max(0, this.dirichletTensionQ16 - 18000);
+this.dirichletTensionQ16 = Math.max(4096, this.dirichletTensionQ16 - 18000);
 if (room.watcher.hp <= 0) {
 room.watcher.alive = false;
-this.statusLog = 'Unmade ' +  + ' back into inert geometry!';
+this.statusLog = 'Banished ' + room.watcher.name + '!';
 return { outcome: 'BANISHED' };
 }
-this.statusLog = 'Struck ' +  + '! (' + room.watcher.hp + ' HP remaining)';
+this.statusLog = 'Hit ' + room.watcher.name + '! (' + room.watcher.hp + ' HP left)';
 return { outcome: 'HIT' };
 } else {
 this.sanityQ16 = q16Clamp(this.sanityQ16 - 8192, 0, Q16_ONE);
-this.statusLog = 'DISSONANCE! ' +  + ' drinks that alignment and fractures your perception!';
+this.statusLog = 'INEFFECTIVE! ' + room.watcher.name + ' resists that alignment!';
 return { outcome: 'BACKFIRE' };
 }
 }
 if (verbId === 'BANKOROK') {
 this.sanityQ16 = q16Clamp(this.sanityQ16 + 8192 + pargonCount * 4096, 0, Q16_ONE);
-this.statusLog = 'A quiet geometric ward steadies Evelyn\'s pulse.';
+this.statusLog = 'Protective ward cast — Sanity steadied.';
 return { outcome: 'WARD' };
 }
-this.statusLog = 'Invoked ' + alignId + ' + ' + verbId + ' + ' + nounId + '.';
+this.statusLog = 'Cast ' + alignId + ' + ' + verbId + ' + ' + nounId + '.';
 return { outcome: 'FIZZLE' };
 }
 step(moveDir, tick) {
 const room = this.rooms[this.currentRoom];
 const p = this.player;
 const floorYQ16 = (218 - 32) << 16;
-// Smooth Q16.16 horizontal acceleration & damping
-const targetVxQ16 = moveDir * 175000; // ~2.67 px/frame
+const targetVxQ16 = moveDir * 175000;
 p.vxQ16 += ((targetVxQ16 - p.vxQ16) >> 2);
 p.moving = Math.abs(moveDir) > 0 || Math.abs(p.vxQ16) > 22000;
 if (moveDir !== 0) p.facing = moveDir > 0 ? 1 : -1;
@@ -264,7 +263,6 @@ c.x = q16Clamp(c.x + moveDir * 2, 70, 380);
 }
 }
 const prevBottom = p.y + 32;
-// Smooth Q16.16 gravity (+0.205 px/frame^2)
 p.vyQ16 = Math.min(480000, p.vyQ16 + 13400);
 p.yQ16 += p.vyQ16;
 p.y = p.yQ16 >> 16;

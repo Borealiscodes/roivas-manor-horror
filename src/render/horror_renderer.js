@@ -115,8 +115,8 @@ export class HorrorFramebuffer {
       this.drawCustomProp(prop, bank, tick);
     }
 
-    if (world.currentRoom === 'OBSERVATORY' || world.dirichletTensionQ16 > 24000) {
-      this.renderCrystal3D(240, 86, world.activeSpellAlign, world.dirichletTensionQ16, tick);
+    || world.dirichletTensionQ16 > 24000) {
+      this.renderCrystal3D(240, 72, world.activeSpellAlign, world.dirichletTensionQ16, tick);
     }
 
     this.drawInvestigator(p, bank, tick);
